@@ -1,0 +1,71 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String     @id @default(cuid())
+  email     String     @unique
+  name      String?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  presentations Presentation[]
+
+  @@map("users")
+}
+
+model Presentation {
+  id        String     @id @default(cuid())
+  title     String
+  description String?
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  design    String     @default("standard") // standard, modern, minimal, etc.
+  slideCount Int       @default(5)
+  language  String     @default("English")
+  
+  slides    Slide[]
+  
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@index([userId])
+  @@map("presentations")
+}
+
+model Slide {
+  id        String     @id @default(cuid())
+  presentationId String
+  presentation Presentation @relation(fields: [presentationId], references: [id], onDelete: Cascade)
+  
+  order     Int
+  title     String
+  content   String
+  styleJson String?    // JSON string for custom styles
+  
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@index([presentationId])
+  @@map("slides")
+}
+
+model GeneratedContent {
+  id        String     @id @default(cuid())
+  
+  prompt    String
+  content   String
+  
+  createdAt DateTime   @default(now())
+
+  @@map("generated_content")
+}
