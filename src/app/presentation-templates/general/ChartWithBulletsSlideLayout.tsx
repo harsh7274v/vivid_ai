@@ -143,7 +143,6 @@ const ChartWithBulletsSlideLayout: React.FC<ChartWithBulletsSlideLayoutProps> = 
             );
         };
         const commonProps = {
-            data: chartData,
             margin: { top: 20, right: 30, left: 0, bottom: 0 },
         };
         const axisProps = {
@@ -156,7 +155,7 @@ const ChartWithBulletsSlideLayout: React.FC<ChartWithBulletsSlideLayoutProps> = 
         switch (chartType) {
             case 'bar':
                 return (
-                    <BarChart {...commonProps} >
+                    <BarChart data={chartData as any[]} {...commonProps}>
                         <CartesianGrid strokeDasharray="3 3" stroke={`var(--background-text, ${color})`} />
                         <XAxis dataKey={xAxis} {...axisProps} />
                         <YAxis {...axisProps} />
@@ -172,7 +171,7 @@ const ChartWithBulletsSlideLayout: React.FC<ChartWithBulletsSlideLayoutProps> = 
 
             case 'line':
                 return (
-                    <LineChart {...commonProps}>
+                    <LineChart data={chartData as any[]} {...commonProps}>
                         <CartesianGrid strokeDasharray="3 3" stroke={`var(--background-text, ${color})`} />
                         <XAxis dataKey={xAxis} {...axisProps} />
                         <YAxis {...axisProps} />
@@ -193,7 +192,7 @@ const ChartWithBulletsSlideLayout: React.FC<ChartWithBulletsSlideLayoutProps> = 
 
             case 'area':
                 return (
-                    <AreaChart {...commonProps}>
+                    <AreaChart data={chartData as any[]} {...commonProps}>
                         <CartesianGrid strokeDasharray="3 3" stroke={`var(--background-text, ${color})`} />
                         <XAxis dataKey={xAxis} {...axisProps} />
                         <YAxis {...axisProps} />
@@ -238,7 +237,7 @@ const ChartWithBulletsSlideLayout: React.FC<ChartWithBulletsSlideLayoutProps> = 
                         <YAxis dataKey={yAxis} type="number" {...axisProps} />
                         {showTooltip && <Tooltip content={<CustomTooltip />} />}
                         {showLegend && <Legend wrapperStyle={{ fontSize: '10px' }} />}
-                        <Scatter dataKey="value" >
+                        <Scatter data={chartData as any[]} dataKey={yAxis}>
                             {chartData.map((_, index) => (
                                 <Cell key={`cell-${index}`} fill={`var(--graph-${index}, ${CHART_COLORS[index % CHART_COLORS.length]})`} />
                             ))}
