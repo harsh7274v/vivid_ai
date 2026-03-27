@@ -467,7 +467,7 @@ const ChartRenderer: React.FC<{ chart: { categories: string[]; series: any[], ty
                             cy="50%"
                             outerRadius={120}
                             dataKey="value"
-                            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                            label={({ name, percent = 0 }) => `${name} ${(percent * 100).toFixed(0)}%`}
                         >
                             {pieData.map((_, index) => (
                                 <Cell key={`cell-${index}`} fill={graphColors(index)} stroke="white" strokeWidth={2} />
@@ -497,7 +497,7 @@ const ChartRenderer: React.FC<{ chart: { categories: string[]; series: any[], ty
                             outerRadius={120}
                             dataKey="value"
                             paddingAngle={2}
-                            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                            label={({ name, percent = 0 }) => `${name} ${(percent * 100).toFixed(0)}%`}
                         >
                             {donutData.map((_, index) => (
                                 <Cell key={`cell-${index}`} fill={graphColors(index)} stroke="white" strokeWidth={2} />

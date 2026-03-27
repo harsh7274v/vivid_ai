@@ -261,7 +261,7 @@ const dynamicSlideLayout: React.FC<{ data: Partial<z.infer<typeof Schema>> }> = 
                     <ResponsiveContainer width="100%" height={400}>
 
                         <PieChart margin={{ top: 20, right: 20, left: 20, bottom: 20 }}>
-                            <Pie data={pieData} cx="50%" cy="50%" outerRadius={150} innerRadius={0} dataKey="value" label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`} labelLine={{ stroke: 'var(--background-text, #333333)', strokeWidth: 1 }}>
+                            <Pie data={pieData} cx="50%" cy="50%" outerRadius={150} innerRadius={0} dataKey="value" label={({ name, percent = 0 }) => `${name}: ${(percent * 100).toFixed(0)}%`} labelLine={{ stroke: 'var(--background-text, #333333)', strokeWidth: 1 }}>
                                 {pieData.map((entry, index) => (
                                     <Cell key={`cell-${index}`} fill={`var(--graph-${index}, ${CHART_COLORS[index % CHART_COLORS.length]})`} />
                                 ))}
@@ -281,7 +281,7 @@ const dynamicSlideLayout: React.FC<{ data: Partial<z.infer<typeof Schema>> }> = 
                     <ResponsiveContainer width="100%" height={400}>
 
                         <PieChart margin={{ top: 20, right: 20, left: 20, bottom: 20 }}>
-                            <Pie data={donutData} cx="50%" cy="50%" outerRadius={150} innerRadius={60} dataKey="value" paddingAngle={2} label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`} labelLine={{ stroke: 'var(--background-text, #333333)', strokeWidth: 1 }}>
+                            <Pie data={donutData} cx="50%" cy="50%" outerRadius={150} innerRadius={60} dataKey="value" paddingAngle={2} label={({ name, percent = 0 }) => `${name}: ${(percent * 100).toFixed(0)}%`} labelLine={{ stroke: 'var(--background-text, #333333)', strokeWidth: 1 }}>
                                 {donutData.map((entry, index) => (
                                     <Cell key={`cell-${index}`} fill={`var(--graph-${index}, ${CHART_COLORS[index % CHART_COLORS.length]})`} stroke="white" strokeWidth={2} />
                                 ))}

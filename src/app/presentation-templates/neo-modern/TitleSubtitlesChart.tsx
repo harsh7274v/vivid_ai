@@ -347,7 +347,7 @@ const dynamicSlideLayout: React.FC<{ data: Partial<z.infer<typeof Schema>> }> = 
                                 cy="50%"
                                 outerRadius={140}
                                 dataKey="value"
-                                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                                label={({ name, percent = 0 }) => `${name} ${(percent * 100).toFixed(0)}%`}
                             >
                                 {pieData.map((_, index) => (
                                     <Cell key={`cell-${index}`} fill={graphColors(index)} stroke="white" strokeWidth={2} />
@@ -376,7 +376,7 @@ const dynamicSlideLayout: React.FC<{ data: Partial<z.infer<typeof Schema>> }> = 
                                 outerRadius={140}
                                 dataKey="value"
                                 paddingAngle={2}
-                                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                                label={({ name, percent = 0 }) => `${name} ${(percent * 100).toFixed(0)}%`}
                             >
                                 {donutData.map((_, index) => (
                                     <Cell key={`cell-${index}`} fill={graphColors(index)} stroke="white" strokeWidth={2} />
