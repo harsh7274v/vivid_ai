@@ -102,7 +102,11 @@ const ChartLegend: React.FC<{ series: z.infer<typeof SeriesSchema>[], colors: st
                 const spreadIndex = getSpreadIndex(index);
                 const fallback = serie.color || colors[index % colors.length];
                 return (
-                    <div key={serie.name} className="flex items-center gap-2 font-normal text-sm" style={{ color: 'var(--background-text,#101828)' }}>
+                    <div
+                        key={`${serie.name || 'series'}-${index}`}
+                        className="flex items-center gap-2 font-normal text-sm"
+                        style={{ color: 'var(--background-text,#101828)' }}
+                    >
                         <span
                             className="h-3 w-3 rounded-full"
                             style={{ backgroundColor: `var(--graph-${spreadIndex}, ${fallback})` }}

@@ -30,8 +30,15 @@ const DEFAULT_CHART_COLORS = ['#8B5CF6', '#06B6D4', '#10B981', '#F59E0B', '#EF44
 const ChartLegend: React.FC<{ series: z.infer<typeof SeriesSchema>[], colors: string[] }> = ({ series, colors }) => (
     <div className="my-2 flex flex-wrap justify-center gap-6">
         {series.map((serie, index) => (
-            <div key={serie.name} className="flex items-center gap-2  font-normal text-sm text-[#101828]" style={{ color: 'var(--background-text, #111827)' }}>
-                <span className="h-3 w-3 rounded-full" style={{ backgroundColor: serie.color || colors[index % colors.length] }} />
+            <div
+                key={`${serie.name || 'series'}-${index}`}
+                className="flex items-center gap-2  font-normal text-sm text-[#101828]"
+                style={{ color: 'var(--background-text, #111827)' }}
+            >
+                <span
+                    className="h-3 w-3 rounded-full"
+                    style={{ backgroundColor: serie.color || colors[index % colors.length] }}
+                />
                 {serie.name}
             </div>
         ))}
