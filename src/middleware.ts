@@ -1,12 +1,7 @@
 import { clerkMiddleware } from '@clerk/nextjs/server'
 
-export default clerkMiddleware({
-  publicRoutes: [
-    '/',
-    '/api/(.*)',
-    '/results',
-  ],
-})
+// Use default Clerk middleware; route protection can be handled per-route
+export default clerkMiddleware()
 
 export const config = {
   matcher: [

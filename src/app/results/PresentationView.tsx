@@ -170,7 +170,7 @@ export default function PresentationView({
 
   const getCurrentTheme = () => {
     if (!currentThemeId) return null
-    const theme = (DEFAULT_THEMES as any[]).find((t) => t.id === currentThemeId)
+    const theme = DEFAULT_THEMES.find((t) => t.id === currentThemeId)
     return theme || null
   }
 
