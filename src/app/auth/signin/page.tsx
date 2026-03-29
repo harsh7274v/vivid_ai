@@ -5,7 +5,7 @@ import { SignIn } from '@clerk/nextjs'
 export default function SignInPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-950">
-      <SignIn />
+      <SignIn afterSignInUrl="/app-maker" afterSignUpUrl="/app-maker" />
     </div>
   )
 }

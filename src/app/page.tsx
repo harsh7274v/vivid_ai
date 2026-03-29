@@ -2,11 +2,20 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { SignInButton, SignUpButton } from '@clerk/nextjs'
+import { SignInButton, SignUpButton, useUser } from '@clerk/nextjs'
 
 export default function Home() {
   const router = useRouter()
+  const { isLoaded, isSignedIn } = useUser()
+
+  useEffect(() => {
+    if (!isLoaded) return
+    if (isSignedIn) {
+      router.replace('/app-maker')
+    }
+  }, [isLoaded, isSignedIn, router])
 
   const handleGoToApp = () => {
     router.push('/app-maker')
