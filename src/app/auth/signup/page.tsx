@@ -3,7 +3,7 @@
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 
-export default function SignInPage() {
+export default function SignUpPage() {
   const router = useRouter()
 
   useEffect(() => {

@@ -2,20 +2,10 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { SignInButton, SignUpButton, useUser } from '@clerk/nextjs'
 
 export default function Home() {
   const router = useRouter()
-  const { isLoaded, isSignedIn } = useUser()
-
-  useEffect(() => {
-    if (!isLoaded) return
-    if (isSignedIn) {
-      router.replace('/app-maker')
-    }
-  }, [isLoaded, isSignedIn, router])
 
   const handleGoToApp = () => {
     router.push('/app-maker')
@@ -33,20 +23,18 @@ export default function Home() {
             <span className="text-lg font-semibold tracking-tight">vivid Ai</span>
           </div>
           <div className="flex items-center gap-3 text-sm">
-            <SignInButton mode="modal">
-              <button
-                className="px-3 py-1.5 rounded-full border border-slate-200 text-slate-700 hover:bg-slate-100 transition"
-              >
-                Log in
-              </button>
-            </SignInButton>
-            <SignUpButton mode="modal">
-              <button
-                className="px-4 py-1.5 rounded-full bg-slate-900 text-slate-50 font-medium hover:bg-black transition"
-              >
-                Sign up
-              </button>
-            </SignUpButton>
+            <button
+              onClick={handleGoToApp}
+              className="px-3 py-1.5 rounded-full border border-slate-200 text-slate-700 hover:bg-slate-100 transition"
+            >
+              Log in
+            </button>
+            <button
+              onClick={handleGoToApp}
+              className="px-4 py-1.5 rounded-full bg-slate-900 text-slate-50 font-medium hover:bg-black transition"
+            >
+              Sign up
+            </button>
           </div>
         </div>
       </header>

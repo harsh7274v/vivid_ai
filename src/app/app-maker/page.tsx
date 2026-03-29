@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation'
 import { useMutation } from '@tanstack/react-query'
 import { usePresentationStore } from '@/store/presentationStore'
 import { puter } from '@heyputer/puter.js'
-import { useUser } from '@clerk/nextjs'
 
 interface AdvancedSettings {
   tone: string
@@ -17,7 +16,6 @@ interface AdvancedSettings {
 
 export default function AppMakerPage() {
   const router = useRouter()
-  const { isLoaded, isSignedIn } = useUser()
   const [content, setContent] = useState('')
   const [attachments, setAttachments] = useState<File[]>([])
   const [design, setDesign] = useState('standard')
@@ -38,13 +36,6 @@ export default function AppMakerPage() {
   const setLoading = usePresentationStore((state) => state.setLoading)
   const setError = usePresentationStore((state) => state.setError)
   const error = usePresentationStore((state) => state.error)
-
-  useEffect(() => {
-    if (!isLoaded) return
-    if (!isSignedIn) {
-      router.push('/')
-    }
-  }, [isLoaded, isSignedIn, router])
 
   const generateMutation = useMutation({
     mutationFn: async () => {
