@@ -1,5 +1,5 @@
 import { PrismaClient } from '../generated/prisma'
-import { PrismaNeon } from '@prisma/adapter-neon'
+import { PrismaNeonHttp } from '@prisma/adapter-neon'
 
 const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient
@@ -11,13 +11,11 @@ function createPrismaClient(): PrismaClient {
     throw new Error('DATABASE_URL environment variable is not set')
   }
 
-  console.log(
-    '[Prisma] Initializing with Neon adapter, URL prefix:',
-    databaseUrl.substring(0, 30) + '...'
-  )
-
-  const adapter = new PrismaNeon({
-    connectionString: databaseUrl,
+  // Use HTTP adapter — more reliable in serverless/Vercel environments
+  // than WebSocket-based PrismaNeon which fails with ErrorEvent on Vercel
+  const adapter = new PrismaNeonHttp(databaseUrl, {
+    arrayMode: false,
+    fullResults: true,
   })
 
   return new PrismaClient({ adapter })
