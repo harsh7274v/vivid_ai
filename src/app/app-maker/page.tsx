@@ -37,6 +37,24 @@ export default function AppMakerPage() {
   const setError = usePresentationStore((state) => state.setError)
   const error = usePresentationStore((state) => state.error)
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      const stored = window.localStorage.getItem('vivid_auth_session')
+      if (!stored) {
+        router.replace('/')
+        return
+      }
+      const parsed = JSON.parse(stored) as { token?: string; expiresAt?: number }
+      if (!parsed.token || typeof parsed.expiresAt !== 'number' || parsed.expiresAt <= Date.now()) {
+        window.localStorage.removeItem('vivid_auth_session')
+        router.replace('/')
+      }
+    } catch {
+      router.replace('/')
+    }
+  }, [router])
+
   const generateMutation = useMutation({
     mutationFn: async () => {
       const presentationSpec = {
@@ -180,6 +198,24 @@ Write out the slides in the exact text format above so they can be parsed correc
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
+      {/* Top navbar matching presentation view */}
+      <div className="max-w-5xl mx-auto px-4 pt-4 pb-0">
+        <header className="h-14 bg-white border border-slate-200 flex items-center px-4 gap-3 rounded-2xl shadow-sm">
+          <div
+            className="flex items-center gap-2 cursor-pointer"
+            onClick={() => router.push('/')}
+          >
+            <div className="w-8 h-8 rounded-lg bg-black flex items-center justify-center">
+              <span className="text-white font-bold text-sm">V</span>
+            </div>
+            <div className="flex flex-col leading-tight">
+              <span className="font-bold text-slate-800 text-lg tracking-tight">vivid Ai</span>
+              <span className="text-[11px] text-slate-500 -mt-0.5">Convert Input into Structured Insights</span>
+            </div>
+          </div>
+        </header>
+      </div>
+
       <main className="max-w-5xl mx-auto px-4 py-10">
         {/* Title / intro */}
         <div className="mb-8 space-y-3">
@@ -196,7 +232,7 @@ Write out the slides in the exact text format above so they can be parsed correc
         </div>
         {/* Presentation setup controls */}
         <section className="mb-6 md:mb-8">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 rounded-2xl bg-white/70 border border-slate-200/80 p-4 shadow-sm backdrop-blur">
+          <div className="glass-card grid grid-cols-1 md:grid-cols-3 gap-4 p-4">
             {/* Design */}
             <div>
               <label className="block text-xs font-medium text-slate-500 mb-1">
@@ -205,7 +241,7 @@ Write out the slides in the exact text format above so they can be parsed correc
               <select
                 value={design}
                 onChange={(e) => setDesign(e.target.value)}
-                className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-slate-900/70 focus:border-transparent"
+                className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none shadow-sm focus:ring-2 focus:ring-slate-900/70 focus:border-transparent"
               >
                 <option value="standard">Standard layout</option>
                 <option value="smart">Smart layout</option>
@@ -220,7 +256,7 @@ Write out the slides in the exact text format above so they can be parsed correc
               <select
                 value={slideCount}
                 onChange={(e) => setSlideCount(parseInt(e.target.value))}
-                className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-slate-900/70 focus:border-transparent"
+                className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none shadow-sm focus:ring-2 focus:ring-slate-900/70 focus:border-transparent"
               >
                 <option value="5">5</option>
                 <option value="8">8</option>
@@ -239,7 +275,7 @@ Write out the slides in the exact text format above so they can be parsed correc
                 <select
                   value={language}
                   onChange={(e) => setLanguage(e.target.value)}
-                  className="flex-1 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-slate-900/70 focus:border-transparent"
+                  className="flex-1 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none shadow-sm focus:ring-2 focus:ring-slate-900/70 focus:border-transparent"
                 >
                   <option value="English">English</option>
                   <option value="Spanish">Spanish</option>
@@ -260,7 +296,7 @@ Write out the slides in the exact text format above so they can be parsed correc
         </section>
 
         {/* Content + attachments card */}
-        <div className="bg-white/90 border border-slate-200 rounded-3xl p-6 md:p-8 shadow-[0_22px_70px_rgba(15,23,42,0.16)] space-y-6 backdrop-blur-sm">
+        <div className="glass-card rounded-3xl p-6 md:p-8 space-y-6">
           {/* Content */}
           <div className="mb-6 md:mb-8">
             <label className="block text-xs font-medium text-slate-500 mb-2">
@@ -270,7 +306,7 @@ Write out the slides in the exact text format above so they can be parsed correc
               value={content}
               onChange={(e) => setContent(e.target.value)}
               placeholder="Explain the presentation you want vivid ai to build for you."
-              className="w-full h-40 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-slate-900/70 focus:border-transparent placeholder:text-slate-400 resize-none"
+              className="w-full h-40 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none shadow-inner focus:ring-2 focus:ring-slate-900/70 focus:border-transparent placeholder:text-slate-400 resize-none"
             />
           </div>
 
@@ -362,7 +398,7 @@ Write out the slides in the exact text format above so they can be parsed correc
                   onChange={(e) =>
                     setAdvancedSettings({ ...advancedSettings, tone: e.target.value })
                   }
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none focus:ring-2 focus:ring-slate-900/70 focus:border-transparent"
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none shadow-sm focus:ring-2 focus:ring-slate-900/70 focus:border-transparent"
                 >
                   <option value="default">Default</option>
                   <option value="casual">Casual</option>
@@ -378,7 +414,7 @@ Write out the slides in the exact text format above so they can be parsed correc
                   onChange={(e) =>
                     setAdvancedSettings({ ...advancedSettings, verbosity: e.target.value })
                   }
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none focus:ring-2 focus:ring-slate-900/70 focus:border-transparent"
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none shadow-sm focus:ring-2 focus:ring-slate-900/70 focus:border-transparent"
                 >
                   <option value="concise">Concise</option>
                   <option value="standard">Standard</option>
@@ -393,7 +429,7 @@ Write out the slides in the exact text format above so they can be parsed correc
                   onChange={(e) =>
                     setAdvancedSettings({ ...advancedSettings, imageType: e.target.value })
                   }
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none focus:ring-2 focus:ring-slate-900/70 focus:border-transparent"
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none shadow-sm focus:ring-2 focus:ring-slate-900/70 focus:border-transparent"
                 >
                   <option value="ai-generated">AI-generated</option>
                   <option value="stock-photos">Stock photos</option>
@@ -410,7 +446,7 @@ Write out the slides in the exact text format above so they can be parsed correc
                       instructions: e.target.value,
                     })
                   }
-                  className="w-full h-20 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none focus:ring-2 focus:ring-slate-900/70 focus:border-transparent resize-none"
+                  className="w-full h-20 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none shadow-inner focus:ring-2 focus:ring-slate-900/70 focus:border-transparent resize-none placeholder:text-slate-400"
                   placeholder="e.g. Focus on startup founders, keep tone bold and confident."
                 />
               </div>

@@ -33,7 +33,7 @@ export const ThemeSelector: React.FC<ThemeSelectorProps> = ({ currentThemeId, on
   };
 
   const applyTheme = (theme: any) => {
-    const element = document.getElementById('presentation-slides-wrapper');
+    const element = document.documentElement;
     if (!element || !theme?.data) return;
 
     clearTheme(element);
@@ -66,7 +66,7 @@ export const ThemeSelector: React.FC<ThemeSelectorProps> = ({ currentThemeId, on
   };
 
   const resetTheme = () => {
-    const element = document.getElementById('presentation-slides-wrapper');
+    const element = document.documentElement;
     if (element) clearTheme(element);
 
     onThemeUpdate(null);

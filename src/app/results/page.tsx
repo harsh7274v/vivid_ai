@@ -8,6 +8,7 @@ import { templates } from '@/app/presentation-templates'
 import type { TemplateLayoutsWithSettings, TemplateWithData } from '@/app/presentation-templates/utils'
 import { usePresentationStore } from '@/store/presentationStore'
 import PresentationView from './PresentationView'
+import { auth } from '@/lib/firebase'
 
 interface Slide {
   number: number
@@ -114,7 +115,13 @@ function AllTemplatesGrid() {
 }
 
 function parseContent(rawContent: string): Slide[] {
-  const decodedContent = decodeURIComponent(rawContent)
+  let decodedContent = rawContent
+  try {
+    decodedContent = decodeURIComponent(rawContent)
+  } catch {
+    // If it's not URI-encoded or malformed, fall back to the raw string
+    decodedContent = rawContent
+  }
   const slides: Slide[] = []
   const stripTelemetry = (text: string): string => {
     const markers = ['"refusal":null', '"via_ai_chat_service"', '"billedusage"']
@@ -693,6 +700,62 @@ function ResultsContent() {
           }
         })
       )
+
+      // Persist generated presentation for the current user (best-effort)
+      if (typeof window !== 'undefined') {
+        try {
+          let email: string | null = null
+          const sessionRaw = window.localStorage.getItem('vivid_auth_session')
+
+          if (sessionRaw) {
+            try {
+              const session = JSON.parse(sessionRaw) as { email?: string | null }
+              email = session?.email ?? null
+            } catch {
+              email = null
+            }
+          }
+
+          // Fallback: use Firebase currentUser email if session payload lacks it
+          if (!email && auth?.currentUser?.email) {
+            email = auth.currentUser.email
+            try {
+              const base = sessionRaw ? JSON.parse(sessionRaw) : {}
+              window.localStorage.setItem(
+                'vivid_auth_session',
+                JSON.stringify({ ...base, email })
+              )
+            } catch {
+              // ignore patch errors
+            }
+          }
+
+          if (email) {
+            const title = generated[0]?.title || 'Generated Presentation'
+            const description = orderedSlides[0]?.content?.join(' ').slice(0, 160) || null
+
+            await fetch('/api/presentations/save', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                userEmail: email,
+                title,
+                description,
+                slides: generated.map((g) => ({
+                  title: g.title,
+                  content: g.content,
+                  imageSrc: g.imageSrc,
+                })),
+              }),
+            })
+          }
+        } catch (error) {
+          console.error('Failed to save presentation history', error)
+        }
+      }
+
       setGeneratedSlides(generated)
       setActiveGeneratedSlideIndex(0)
 

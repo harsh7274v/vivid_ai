@@ -7,6 +7,7 @@ import { ThemeSelector } from '../../components/ThemeSelector'
 import type { TemplateWithData } from '@/app/presentation-templates/utils'
 import { DEFAULT_THEMES } from '@/constants/themes'
 import PresentationMode from './PresentationMode'
+import { auth } from '@/lib/firebase'
 
 interface Slide {
   number: number
@@ -16,6 +17,16 @@ interface Slide {
 
 interface GeneratedSlide extends Slide {
   imageSrc: string | null
+}
+
+interface PresentationHistoryItem {
+  id: string
+  title: string
+  description: string | null
+  createdAt: string
+  slideCount: number
+  design: string
+  language: string
 }
 
 interface PresentationViewProps {
@@ -52,6 +63,10 @@ export default function PresentationView({
   const [editableSlides, setEditableSlides] = useState<GeneratedSlide[]>(generatedSlides)
   const [currentThemeId, setCurrentThemeId] = useState<string>('')
   const [isPresentMode, setIsPresentMode] = useState(false)
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false)
+  const [history, setHistory] = useState<PresentationHistoryItem[]>([])
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+  const [historyError, setHistoryError] = useState<string | null>(null)
 
   useEffect(() => {
     setEditableSlides(generatedSlides)
@@ -172,6 +187,72 @@ export default function PresentationView({
     if (!currentThemeId) return null
     const theme = DEFAULT_THEMES.find((t) => t.id === currentThemeId)
     return theme || null
+  }
+
+  const loadHistory = async () => {
+    if (typeof window === 'undefined') return
+    try {
+      setIsLoadingHistory(true)
+      setHistoryError(null)
+      let email: string | null = null
+
+      const raw = window.localStorage.getItem('vivid_auth_session')
+      if (raw) {
+        try {
+          const session = JSON.parse(raw) as { email?: string | null }
+          email = session?.email ?? null
+        } catch {
+          email = null
+        }
+      }
+
+      // Fallback to Firebase auth if email missing from session payload
+      if (!email && auth?.currentUser?.email) {
+        email = auth.currentUser.email
+        // Best-effort: patch localStorage payload for future reads
+        try {
+          const base = raw ? JSON.parse(raw) : {}
+          window.localStorage.setItem(
+            'vivid_auth_session',
+            JSON.stringify({ ...base, email })
+          )
+        } catch {
+          // ignore patch errors
+        }
+      }
+
+      if (!email) {
+        setHistory([])
+        setHistoryError('Sign in to view your saved presentations')
+        return
+      }
+
+      const res = await fetch(
+        `/api/presentations/history?userEmail=${encodeURIComponent(email)}`
+      )
+      if (!res.ok) {
+        throw new Error('Failed to load history')
+      }
+
+      const data = (await res.json()) as { presentations?: PresentationHistoryItem[] }
+      setHistory(data.presentations || [])
+    } catch (error) {
+      console.error('Failed to load presentation history', error)
+      setHistoryError('Failed to load previous presentations')
+    } finally {
+      setIsLoadingHistory(false)
+    }
+  }
+
+  const handleToggleHistory = () => {
+    setIsHistoryOpen((prev) => {
+      const next = !prev
+      if (!prev) {
+        // Opening panel
+        void loadHistory()
+      }
+      return next
+    })
   }
 
   const buildPptxModel = () => {
@@ -399,7 +480,7 @@ export default function PresentationView({
 
           {/* Dashboard */}
           <button
-            onClick={() => router.push('/app-maker')}
+            onClick={handleToggleHistory}
             className="flex items-center gap-1.5 px-4 py-1.5 border border-slate-200 text-slate-600 font-medium text-sm rounded-lg hover:bg-slate-50 transition"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -702,6 +783,65 @@ export default function PresentationView({
             </div>
           </div>
         </main>
+
+        {/* ─── Right History Sidebar ─── */}
+        {isHistoryOpen && (
+          <aside className="w-[280px] bg-white border border-slate-200 rounded-2xl ml-4 flex flex-col shrink-0 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900">Your presentations</h2>
+                <p className="text-[11px] text-slate-500">Recent decks you generated</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsHistoryOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition"
+                aria-label="Close history panel"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2 text-sm">
+              {isLoadingHistory && (
+                <div className="text-xs text-slate-500 px-2 py-1">Loading history…</div>
+              )}
+              {historyError && !isLoadingHistory && (
+                <div className="text-xs text-rose-500 px-2 py-1">{historyError}</div>
+              )}
+              {!isLoadingHistory && !historyError && history.length === 0 && (
+                <div className="text-xs text-slate-400 px-2 py-1">
+                  No saved presentations yet.
+                </div>
+              )}
+
+              {history.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="w-full text-left rounded-xl border border-slate-200 bg-white px-3 py-2.5 hover:border-slate-300 hover:shadow-sm transition"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-slate-900 truncate">{item.title}</span>
+                    <span className="text-[10px] text-slate-400 whitespace-nowrap">
+                      {item.slideCount} slides
+                    </span>
+                  </div>
+                  {item.description && (
+                    <p className="mt-1 text-[11px] text-slate-500 line-clamp-2">
+                      {item.description}
+                    </p>
+                  )}
+                  <div className="mt-1 text-[10px] text-slate-400">
+                    {new Date(item.createdAt).toLocaleString()}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </aside>
+        )}
       </div>
     </div>
     {isPresentMode && (
