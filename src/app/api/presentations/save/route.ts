@@ -97,7 +97,10 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     console.error('Failed to save presentation:', error)
     return NextResponse.json(
-      { error: 'Failed to save presentation' },
+      {
+        error: 'Failed to save presentation',
+        details: error instanceof Error ? error.message : String(error),
+      },
       { status: 500 }
     )
   }
