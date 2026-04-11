@@ -96,10 +96,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ id: presentation.id })
   } catch (error) {
     console.error('Failed to save presentation:', error)
+    const message = error instanceof Error ? error.message : String(error)
+    const stack = error instanceof Error ? error.stack : undefined
+    console.error('Save error details:', { message, stack })
     return NextResponse.json(
       {
         error: 'Failed to save presentation',
-        details: error instanceof Error ? error.message : String(error),
+        details: message,
       },
       { status: 500 }
     )

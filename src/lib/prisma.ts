@@ -5,16 +5,25 @@ const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient
 }
 
-if (!process.env.DATABASE_URL) {
-  throw new Error('DATABASE_URL must be set for Prisma/Neon')
+function createPrismaClient(): PrismaClient {
+  const databaseUrl = process.env.DATABASE_URL
+  if (!databaseUrl) {
+    throw new Error('DATABASE_URL environment variable is not set')
+  }
+
+  console.log(
+    '[Prisma] Initializing with Neon adapter, URL prefix:',
+    databaseUrl.substring(0, 30) + '...'
+  )
+
+  const adapter = new PrismaNeon({
+    connectionString: databaseUrl,
+  })
+
+  return new PrismaClient({ adapter })
 }
 
-const adapter = new PrismaNeon({
-  connectionString: process.env.DATABASE_URL!,
-})
-
-export const prisma =
-  globalForPrisma.prisma ?? new PrismaClient({ adapter })
+export const prisma = globalForPrisma.prisma ?? createPrismaClient()
 
 if (process.env.NODE_ENV !== 'production') {
   globalForPrisma.prisma = prisma
