@@ -9,6 +9,7 @@ import type { TemplateLayoutsWithSettings, TemplateWithData } from '@/app/presen
 import { usePresentationStore } from '@/store/presentationStore'
 import PresentationView from './PresentationView'
 import { auth } from '@/lib/firebase'
+import { useTheme } from '@/providers/ThemeProvider'
 
 interface Slide {
   number: number
@@ -322,6 +323,8 @@ function parseContent(rawContent: string): Slide[] {
 function ResultsContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
+  const { theme } = useTheme()
+  const presentationId = searchParams.get('presentationId')
   const content = searchParams.get('content')
   const slides = useMemo(() => (content ? parseContent(content) : []), [content])
   const [orderedSlides, setOrderedSlides] = useState<Slide[]>(slides)
@@ -335,6 +338,8 @@ function ResultsContent() {
   const [isGeneratingPresentation, setIsGeneratingPresentation] = useState(false)
   const [activeGeneratedSlideIndex, setActiveGeneratedSlideIndex] = useState(0)
   const [layoutIndices, setLayoutIndices] = useState<number[]>([])
+  const [isLoadingExisting, setIsLoadingExisting] = useState(false)
+  const [existingError, setExistingError] = useState<string | null>(null)
   const selectedTemplateId = usePresentationStore((state) => state.selectedTemplateId)
   const selectedTemplateGroup = useMemo(
     () => templates.find((t) => t.id === selectedTemplateId),
@@ -346,17 +351,127 @@ function ResultsContent() {
     setOrderedSlides(slides)
   }, [slides])
 
-  if (!content) {
+  // When opened from dashboard with a saved presentation id, load its slides
+  useEffect(() => {
+    if (!presentationId) return
+
+    let isCancelled = false
+
+    const loadPresentation = async () => {
+      try {
+        setIsLoadingExisting(true)
+        setExistingError(null)
+
+        const res = await fetch(`/api/presentations/${presentationId}`)
+        if (!res.ok) {
+          const message = res.status === 404 ? 'Presentation not found' : 'Failed to load presentation'
+          if (!isCancelled) setExistingError(message)
+          return
+        }
+
+        const data: {
+          slides?: {
+            title: string
+            content: string[]
+            imageSrc?: string | null
+          }[]
+        } = await res.json()
+
+        const loadedSlides: GeneratedPresentationSlide[] = (data.slides || []).map(
+          (s, index) => ({
+            number: index + 1,
+            title: s.title,
+            content: Array.isArray(s.content) && s.content.length > 0 ? s.content : [''],
+            imageSrc: s.imageSrc ?? null,
+          })
+        )
+
+        if (!isCancelled) {
+          setGeneratedSlides(loadedSlides)
+          setActiveGeneratedSlideIndex(0)
+          // Jump directly to Presentation view
+          setSelectedSlideIndex(1)
+        }
+      } catch (error) {
+        console.error('Failed to load saved presentation for editing:', error)
+        if (!isCancelled) setExistingError('Failed to load presentation')
+      } finally {
+        if (!isCancelled) setIsLoadingExisting(false)
+      }
+    }
+
+    void loadPresentation()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [presentationId])
+
+  if (!content && !presentationId) {
     return (
-      <div className="min-h-screen bg-slate-50">
+      <div
+        className={`min-h-screen ${
+          theme === 'light'
+            ? 'bg-slate-50 text-slate-900'
+            : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 text-slate-50'
+        }`}
+      >
         <main className="max-w-5xl mx-auto px-4 py-12">
           <div className="text-center">
-            <p className="text-slate-500 mb-6">No content available</p>
+            <p
+              className={`mb-6 ${
+                theme === 'light' ? 'text-slate-500' : 'text-slate-300'
+              }`}
+            >
+              No content available
+            </p>
             <button
               onClick={() => router.push('/app-maker')}
               className="px-6 py-2 rounded-full bg-slate-900 text-slate-50 font-medium hover:bg-black transition"
             >
               Go back
+            </button>
+          </div>
+        </main>
+      </div>
+    )
+  }
+
+  if (presentationId && isLoadingExisting) {
+    return (
+      <div
+        className={`min-h-screen ${
+          theme === 'light'
+            ? 'bg-slate-50 text-slate-900'
+            : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 text-slate-50'
+        }`}
+      >
+        <main className="max-w-5xl mx-auto px-4 py-12">
+          <div className="text-center text-sm text-slate-500">
+            Loading presentation…
+          </div>
+        </main>
+      </div>
+    )
+  }
+
+  if (presentationId && existingError) {
+    return (
+      <div
+        className={`min-h-screen ${
+          theme === 'light'
+            ? 'bg-slate-50 text-slate-900'
+            : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 text-slate-50'
+        }`}
+      >
+        <main className="max-w-5xl mx-auto px-4 py-12">
+          <div className="text-center space-y-4">
+            <p className="text-sm text-rose-500">{existingError}</p>
+            <button
+              onClick={() => router.push('/dashboard')}
+              className="px-6 py-2 rounded-full bg-slate-900 text-slate-50 text-sm font-medium hover:bg-black transition"
+            >
+              Back to dashboard
             </button>
           </div>
         </main>
@@ -901,13 +1016,21 @@ function ResultsContent() {
   }, [slides.length, selectedTemplateId])
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div
+      className={`min-h-screen ${
+        theme === 'light'
+          ? 'bg-slate-50 text-slate-900'
+          : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 text-slate-50'
+      }`}
+    >
       {/* Main Content */}
       <main className="max-w-5xl mx-auto px-4 py-10">
         <div className="mb-6">
           <button
             onClick={() => {
-              if (selectedSlideIndex === slides.length) {
+              if (presentationId) {
+                router.push('/dashboard')
+              } else if (selectedSlideIndex === slides.length) {
                 setSelectedSlideIndex(0)
                 if (typeof window !== 'undefined') {
                   window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -921,7 +1044,11 @@ function ResultsContent() {
                 router.push('/app-maker')
               }
             }}
-            className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-slate-200 text-slate-700 hover:bg-slate-100 transition text-sm"
+            className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full border transition text-sm ${
+              theme === 'light'
+                ? 'border-slate-200 text-slate-700 hover:bg-slate-100'
+                : 'border-slate-600 text-slate-100 hover:bg-slate-900'
+            }`}
           >
             <svg
               className="w-4 h-4"
@@ -941,8 +1068,16 @@ function ResultsContent() {
         </div>
 
         {/* Section label */}
-        <div className="mb-8 border-b border-slate-200">
-          <p className="pb-4 px-1 text-sm font-medium text-slate-500">
+        <div
+          className={`mb-8 border-b ${
+            theme === 'light' ? 'border-slate-200' : 'border-slate-700'
+          }`}
+        >
+          <p
+            className={`pb-4 px-1 text-sm font-medium ${
+              theme === 'light' ? 'text-slate-500' : 'text-slate-300'
+            }`}
+          >
             {selectedSlideIndex < orderedSlides.length
               ? 'Outline & Content'
               : selectedSlideIndex === slides.length
@@ -987,10 +1122,15 @@ function ResultsContent() {
                   </div>
 
                   <div
-                    className={`flex-1 rounded-3xl overflow-hidden transition bg-white/80 backdrop-blur-sm p-7 border border-slate-200/70 shadow-sm ${draggingIndex === index
-                      ? 'ring-2 ring-slate-300/80 shadow-md translate-y-0'
-                      : 'hover:shadow-md hover:-translate-y-0.5'
-                      }`}
+                    className={`flex-1 rounded-3xl overflow-hidden transition backdrop-blur-sm p-7 border shadow-sm ${
+                      theme === 'light'
+                        ? 'bg-white/80 border-slate-200/70'
+                        : 'bg-neutral-900/80 border-neutral-700/70'
+                    } ${
+                      draggingIndex === index
+                        ? 'ring-2 ring-slate-300/80 shadow-md translate-y-0'
+                        : 'hover:shadow-md hover:-translate-y-0.5'
+                    }`}
                   >
                     {/* Unified Slide Layout for all slides, including title slide */}
                     <div className="space-y-6">
@@ -1004,7 +1144,11 @@ function ResultsContent() {
                             type="text"
                             value={slide.title}
                             onChange={(e) => handleTitleChange(index, e.target.value)}
-                            className="w-full bg-transparent border-b border-slate-200/70 focus:outline-none focus:border-slate-400 text-xl font-semibold text-slate-900 mb-1"
+                            className={`w-full bg-transparent border-b focus:outline-none text-xl font-semibold mb-1 ${
+                              theme === 'light'
+                                ? 'border-slate-200/70 focus:border-slate-400 text-slate-900'
+                                : 'border-slate-600/70 focus:border-slate-300 text-slate-50'
+                            }`}
                           />
                           <div className="h-1 w-10 bg-slate-900 rounded-full mt-1"></div>
                         </div>
@@ -1035,7 +1179,9 @@ function ResultsContent() {
                           {slide.content.map((point, idx) => (
                             <li
                               key={idx}
-                              className="flex items-center gap-2 text-slate-700 leading-relaxed"
+                              className={`flex items-center gap-2 leading-relaxed ${
+                                theme === 'light' ? 'text-slate-700' : 'text-slate-100'
+                              }`}
                               onDragOver={handleBulletDragOver}
                               onDrop={(event) => handleBulletDrop(event, index, idx)}
                             >
@@ -1074,7 +1220,11 @@ function ResultsContent() {
                                 onChange={(e) =>
                                   handleBulletChange(index, idx, e.target.value)
                                 }
-                                className="flex-1 bg-slate-50/80 border border-slate-200/70 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-slate-400 focus:bg-white"
+                                className={`flex-1 rounded-lg px-3 py-1.5 text-sm focus:outline-none ${
+                                  theme === 'light'
+                                    ? 'bg-slate-50/80 border border-slate-200/70 focus:border-slate-400 focus:bg-white'
+                                    : 'bg-neutral-900/80 border border-neutral-700/70 focus:border-neutral-400 focus:bg-neutral-900'
+                                }`}
                               />
 
                               {/* Bullet actions: add & delete */}
@@ -1160,7 +1310,11 @@ function ResultsContent() {
                   navigator.clipboard.writeText(text)
                   alert('Content copied to clipboard!')
                 }}
-                className="flex items-center gap-2 px-6 py-3 border border-slate-300 text-slate-800 font-semibold rounded-full hover:bg-slate-100 transition"
+                className={`flex items-center gap-2 px-6 py-3 font-semibold rounded-full transition ${
+                  theme === 'light'
+                    ? 'border border-slate-300 text-slate-800 hover:bg-slate-100'
+                    : 'border border-slate-600 text-slate-100 hover:bg-slate-900'
+                }`}
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
@@ -1544,14 +1698,16 @@ function ResultsContent() {
 
 export default function Results() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-slate-900 mb-4"></div>
-          <p className="text-slate-500">Loading content...</p>
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+          <div className="text-center">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-slate-900 mb-4" />
+            <p className="text-slate-500">Loading content...</p>
+          </div>
         </div>
-      </div>
-    }>
+      }
+    >
       <ResultsContent />
     </Suspense>
   )

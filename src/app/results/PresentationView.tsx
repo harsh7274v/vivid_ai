@@ -8,6 +8,7 @@ import type { TemplateWithData } from '@/app/presentation-templates/utils'
 import { DEFAULT_THEMES } from '@/constants/themes'
 import PresentationMode from './PresentationMode'
 import { auth } from '@/lib/firebase'
+import { useTheme } from '@/providers/ThemeProvider'
 
 interface Slide {
   number: number
@@ -57,6 +58,7 @@ export default function PresentationView({
   layoutIndices,
 }: PresentationViewProps) {
   const router = useRouter()
+  const { theme, toggleTheme } = useTheme()
   const [sidebarView, setSidebarView] = useState<'grid' | 'list'>('grid')
   const [enableSelectEdit, setEnableSelectEdit] = useState(false)
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
@@ -361,14 +363,36 @@ export default function PresentationView({
   // Pre-generation state
   if (generatedSlides.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-24">
-        <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center mb-6 shadow-lg">
+      <div
+        className={`min-h-screen flex flex-col items-center justify-center py-24 ${
+          theme === 'light'
+            ? 'bg-slate-50 text-slate-900'
+            : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 text-slate-50'
+        }`}
+      >
+        <div
+          className={`w-20 h-20 rounded-2xl flex items-center justify-center mb-6 shadow-lg ${
+            theme === 'light'
+              ? 'bg-gradient-to-br from-indigo-500 to-purple-600'
+              : 'bg-gradient-to-br from-slate-900 via-neutral-800 to-slate-700'
+          }`}
+        >
           <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
           </svg>
         </div>
-        <h3 className="text-xl font-semibold text-slate-800 mb-2">Ready to Generate</h3>
-        <p className="text-slate-500 text-sm mb-6 text-center max-w-md">
+        <h3
+          className={`text-xl font-semibold mb-2 ${
+            theme === 'light' ? 'text-slate-800' : 'text-slate-50'
+          }`}
+        >
+          Ready to Generate
+        </h3>
+        <p
+          className={`text-sm mb-6 text-center max-w-md ${
+            theme === 'light' ? 'text-slate-500' : 'text-slate-300'
+          }`}
+        >
           {hasTemplate
             ? 'Click below to generate your presentation slides with the selected template.'
             : 'Please select a template in the "Select Template" tab first.'}
@@ -376,7 +400,11 @@ export default function PresentationView({
         <button
           onClick={onGenerate}
           disabled={isGenerating || !orderedSlides.length || !hasTemplate}
-          className="px-8 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold rounded-full shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+          className={`px-8 py-3 rounded-full font-semibold shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none ${
+            theme === 'light'
+              ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white'
+              : 'bg-gradient-to-r from-slate-900 via-neutral-800 to-slate-700 text-slate-50'
+          }`}
         >
           {isGenerating ? (
             <span className="flex items-center gap-2">
@@ -396,21 +424,45 @@ export default function PresentationView({
 
   return (
     <>
-    <div className="fixed inset-0 z-50 bg-[#f5f5f5] flex flex-col">
+    <div
+      className={`fixed inset-0 z-50 flex flex-col ${
+        theme === 'light'
+          ? 'bg-slate-50 text-slate-900'
+          : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 text-slate-50'
+      }`}
+    >
       {/* ─── Top Navbar ─── */}
       <div className="px-4 pt-4 pb-0 shrink-0">
-        <header className="h-14 bg-white border border-slate-200 flex items-center px-4 gap-3 rounded-2xl shadow-sm">
+        <header
+          className={`h-14 flex items-center px-4 gap-3 rounded-2xl shadow-sm border ${
+            theme === 'light'
+              ? 'bg-white border-slate-200 text-slate-800'
+              : 'bg-neutral-900/95 border-neutral-700 text-slate-50'
+          }`}
+        >
           {/* Logo and title */}
           <div
             className="flex items-center gap-2 cursor-pointer"
             onClick={() => router.push('/')}
           >
-            <div className="w-8 h-8 rounded-lg bg-black flex items-center justify-center">
-              <span className="text-white font-bold text-sm">V</span>
+            <div
+              className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                theme === 'light' ? 'bg-black text-white' : 'bg-white text-black'
+              }`}
+            >
+              <span className="font-bold text-sm">V</span>
             </div>
             <div className="flex flex-col leading-tight">
-              <span className="font-bold text-slate-800 text-lg tracking-tight">vivid Ai</span>
-              <span className="text-[11px] text-slate-500 -mt-0.5">Convert Input into Structured Insights</span>
+              <span className="font-bold text-lg tracking-tight">
+                vivid Ai
+              </span>
+              <span
+                className={`text-[11px] -mt-0.5 ${
+                  theme === 'light' ? 'text-slate-500' : 'text-slate-300'
+                }`}
+              >
+                Convert Input into Structured Insights
+              </span>
             </div>
           </div>
 
@@ -418,22 +470,69 @@ export default function PresentationView({
           <div className="w-px h-6 bg-slate-200 mx-3" />
 
           {/* Title */}
-          <span className="text-sm text-slate-600 truncate max-w-[280px]">
+          <span
+            className={`text-sm truncate max-w-[280px] ${
+              theme === 'light' ? 'text-slate-600' : 'text-slate-300'
+            }`}
+          >
             {currentSlide?.title || 'Untitled Presentation'}
           </span>
 
           {/* Spacer */}
           <div className="flex-1" />
 
-          {/* Theme */}
+          {/* Global light/dark toggle */}
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className={`mr-2 flex items-center justify-center w-9 h-9 rounded-full border text-xs transition-colors ${
+              theme === 'light'
+                ? 'border-slate-200 text-slate-600 hover:bg-slate-100'
+                : 'border-slate-600 text-slate-200 hover:bg-neutral-800'
+            }`}
+            aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+          >
+            {theme === 'light' ? (
+              // Moon icon
+              <svg
+                className="w-4 h-4"
+                fill="currentColor"
+                viewBox="0 0 20 20"
+              >
+                <path d="M17.293 13.293A8 8 0 016.707 2.707 6 6 0 1017.293 13.293z" />
+              </svg>
+            ) : (
+              // Sun icon
+              <svg
+                className="w-4 h-4"
+                fill="currentColor"
+                viewBox="0 0 20 20"
+              >
+                <path d="M10 3.5a1 1 0 011-1h.01a1 1 0 010 2H11a1 1 0 01-1-1zm0 11a1 1 0 011-1h.01a1 1 0 010 2H11a1 1 0 01-1-1zM4.222 5.636a1 1 0 011.414-1.414l.008.008a1 1 0 01-1.414 1.414l-.008-.008zm9.142 9.142a1 1 0 011.414-1.414l.008.008a1 1 0 01-1.414 1.414l-.008-.008zM3.5 11a1 1 0 011-1H4.51a1 1 0 010 2H4.5a1 1 0 01-1-1zm11 0a1 1 0 011-1h.01a1 1 0 010 2H15.5a1 1 0 01-1-1zM4.222 14.364a1 1 0 011.414 0l.008.008a1 1 0 01-1.414 1.414l-.008-.008a1 1 0 010-1.414zm9.142-9.142a1 1 0 011.414 0l.008.008a1 1 0 01-1.414 1.414l-.008-.008a1 1 0 010-1.414zM10 6a4 4 0 100 8 4 4 0 000-8z" />
+              </svg>
+            )}
+          </button>
+
+          {/* Theme for export / template visuals */}
           <ThemeSelector currentThemeId={currentThemeId} onThemeUpdate={handleThemeUpdate} />
 
           {/* Enable Select Edit Toggle */}
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 rounded-full">
-            <svg className="w-4 h-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-full ${
+              theme === 'light'
+                ? 'bg-emerald-50 text-emerald-700'
+                : 'bg-emerald-900/40 text-emerald-200'
+            }`}
+          >
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
-            <span className="text-xs font-medium text-emerald-700">Enable Select Edit</span>
+            <span className="text-xs font-medium">Enable Select Edit</span>
             <button
               onClick={() => setEnableSelectEdit(!enableSelectEdit)}
               className={`relative w-10 h-5 rounded-full transition-colors ${enableSelectEdit ? 'bg-emerald-500' : 'bg-slate-300'}`}
@@ -444,12 +543,24 @@ export default function PresentationView({
 
           {/* Undo / Redo */}
           <div className="flex items-center gap-1">
-            <button className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition">
+            <button
+              className={`p-1.5 rounded-lg transition ${
+                theme === 'light'
+                  ? 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                  : 'text-slate-300 hover:text-slate-100 hover:bg-neutral-800'
+              }`}
+            >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a5 5 0 015 5v2M3 10l4-4M3 10l4 4" />
               </svg>
             </button>
-            <button className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition">
+            <button
+              className={`p-1.5 rounded-lg transition ${
+                theme === 'light'
+                  ? 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                  : 'text-slate-300 hover:text-slate-100 hover:bg-neutral-800'
+              }`}
+            >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 10H11a5 5 0 00-5 5v2m15-7l-4-4m4 4l-4 4" />
               </svg>
@@ -459,7 +570,11 @@ export default function PresentationView({
           {/* Present */}
           <button
             onClick={() => setIsPresentMode(true)}
-            className="flex items-center gap-1.5 px-4 py-1.5 border border-indigo-200 text-indigo-600 font-medium text-sm rounded-lg hover:bg-indigo-50 transition"
+            className={`flex items-center gap-1.5 px-4 py-1.5 font-medium text-sm rounded-lg transition border ${
+              theme === 'light'
+                ? 'border-indigo-200 text-indigo-600 hover:bg-indigo-50'
+                : 'border-indigo-400/60 text-indigo-300 hover:bg-indigo-500/10'
+            }`}
           >
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
               <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
@@ -470,7 +585,11 @@ export default function PresentationView({
           {/* Export */}
           <button
             onClick={handleExportPptx}
-            className="flex items-center gap-1.5 px-4 py-1.5 border border-slate-200 text-slate-600 font-medium text-sm rounded-lg hover:bg-slate-50 transition"
+            className={`flex items-center gap-1.5 px-4 py-1.5 font-medium text-sm rounded-lg transition border ${
+              theme === 'light'
+                ? 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                : 'border-slate-500 text-slate-200 hover:bg-neutral-800'
+            }`}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
@@ -480,8 +599,12 @@ export default function PresentationView({
 
           {/* Dashboard */}
           <button
-            onClick={handleToggleHistory}
-            className="flex items-center gap-1.5 px-4 py-1.5 border border-slate-200 text-slate-600 font-medium text-sm rounded-lg hover:bg-slate-50 transition"
+            onClick={() => router.push('/dashboard')}
+            className={`flex items-center gap-1.5 px-4 py-1.5 font-medium text-sm rounded-lg transition border ${
+              theme === 'light'
+                ? 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                : 'border-slate-500 text-slate-200 hover:bg-neutral-800'
+            }`}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
@@ -495,12 +618,28 @@ export default function PresentationView({
       <div className="flex flex-1 overflow-hidden px-4 pt-4 pb-4 relative">
         {/* ─── Left Sidebar ─── */}
         {isSidebarOpen ? (
-          <aside className="w-[272px] bg-white border-r border-slate-200 flex flex-col shrink-0 pt-4 pl-4 pr-3 pb-4 rounded-2xl">
+          <aside
+            className={`w-[272px] flex flex-col shrink-0 pt-4 pl-4 pr-3 pb-4 rounded-2xl border-r ${
+              theme === 'light'
+                ? 'bg-white border-slate-200'
+                : 'bg-neutral-900/90 border-neutral-800'
+            }`}
+          >
           {/* Sidebar header */}
-          <div className="flex items-center gap-2 px-3 py-3 border-b border-slate-100">
+          <div
+            className={`flex items-center gap-2 px-3 py-3 border-b ${
+              theme === 'light' ? 'border-slate-100' : 'border-neutral-800'
+            }`}
+          >
             <button
               onClick={() => setSidebarView('grid')}
-              className={`p-1.5 rounded-lg transition ${sidebarView === 'grid' ? 'bg-slate-900 text-white' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}`}
+              className={`p-1.5 rounded-lg transition ${
+                sidebarView === 'grid'
+                  ? 'bg-slate-900 text-white'
+                  : theme === 'light'
+                  ? 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                  : 'text-slate-300 hover:text-slate-50 hover:bg-neutral-800'
+              }`}
             >
               <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                 <path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM11 13a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
@@ -508,17 +647,33 @@ export default function PresentationView({
             </button>
             <button
               onClick={() => setSidebarView('list')}
-              className={`p-1.5 rounded-lg transition ${sidebarView === 'list' ? 'bg-slate-900 text-white' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}`}
+              className={`p-1.5 rounded-lg transition ${
+                sidebarView === 'list'
+                  ? 'bg-slate-900 text-white'
+                  : theme === 'light'
+                  ? 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                  : 'text-slate-300 hover:text-slate-50 hover:bg-neutral-800'
+              }`}
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
               </svg>
             </button>
-            <span className="text-sm text-slate-500 ml-1">({editableSlides.length})</span>
+            <span
+              className={`text-sm ml-1 ${
+                theme === 'light' ? 'text-slate-500' : 'text-slate-300'
+              }`}
+            >
+              ({editableSlides.length})
+            </span>
             <div className="flex-1" />
             <button
               onClick={() => setIsSidebarOpen(false)}
-              className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition"
+              className={`p-1.5 rounded-lg transition ${
+                theme === 'light'
+                  ? 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                  : 'text-slate-300 hover:text-slate-50 hover:bg-neutral-800'
+              }`}
               aria-label="Close slide list"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -540,8 +695,12 @@ export default function PresentationView({
                     }}
                     className={`w-full text-left rounded-2xl border-2 px-5 py-4 text-base font-semibold tracking-tight transition-all ${
                       index === safeIndex
-                        ? 'border-violet-500 text-slate-900 shadow-[0_0_0_1px_rgba(124,58,237,0.25)] bg-white'
-                        : 'border-slate-200 text-slate-900 hover:border-slate-300 bg-white'
+                          ? theme === 'light'
+                            ? 'border-violet-500 text-slate-900 shadow-[0_0_0_1px_rgba(124,58,237,0.25)] bg-white'
+                            : 'border-violet-400 text-slate-50 shadow-[0_0_0_1px_rgba(129,140,248,0.4)] bg-neutral-900'
+                          : theme === 'light'
+                          ? 'border-slate-200 text-slate-900 hover:border-slate-300 bg-white'
+                          : 'border-neutral-700 text-slate-200 hover:border-neutral-500 bg-neutral-900'
                     }`}
                   >
                     {`Slide ${index + 1}`}
@@ -557,12 +716,20 @@ export default function PresentationView({
                     }}
                     className={`w-full text-left rounded-xl border-2 transition-all overflow-hidden ${
                       index === safeIndex
-                        ? 'border-indigo-500 shadow-md shadow-indigo-100'
-                        : 'border-slate-200 hover:border-slate-300 hover:shadow-sm'
+                          ? theme === 'light'
+                            ? 'border-indigo-500 shadow-md shadow-indigo-100'
+                            : 'border-indigo-400 shadow-md shadow-indigo-900/40'
+                          : theme === 'light'
+                          ? 'border-slate-200 hover:border-slate-300 hover:shadow-sm'
+                          : 'border-neutral-700 hover:border-neutral-500 hover:shadow-sm'
                     }`}
                   >
                     {/* Thumbnail preview */}
-                    <div className="relative bg-slate-50 aspect-[16/9] overflow-hidden">
+                    <div
+                      className={`relative aspect-[16/9] overflow-hidden ${
+                        theme === 'light' ? 'bg-slate-50' : 'bg-neutral-900'
+                      }`}
+                    >
                       {LayoutComponent && buildSlideData ? (
                         <div className="absolute inset-0 bg-transparent z-10" />
                       ) : null}
@@ -574,15 +741,37 @@ export default function PresentationView({
                           className="w-full h-full object-cover"
                         />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200">
-                          <span className="text-3xl font-bold text-slate-300">{slide.number}</span>
+                        <div
+                          className={`w-full h-full flex items-center justify-center bg-gradient-to-br ${
+                            theme === 'light'
+                              ? 'from-slate-100 to-slate-200'
+                              : 'from-neutral-800 to-neutral-900'
+                          }`}
+                        >
+                          <span
+                            className={`text-3xl font-bold ${
+                              theme === 'light' ? 'text-slate-300' : 'text-neutral-600'
+                            }`}
+                          >
+                            {slide.number}
+                          </span>
                         </div>
                       )}
                     </div>
                     {/* Slide info */}
                     <div className="p-2.5">
-                      <div className="font-semibold text-xs text-slate-800 truncate">{slide.title}</div>
-                      <div className="text-[10px] text-slate-500 mt-0.5 line-clamp-2 leading-tight">
+                      <div
+                        className={`font-semibold text-xs truncate ${
+                          theme === 'light' ? 'text-slate-800' : 'text-slate-100'
+                        }`}
+                      >
+                        {slide.title}
+                      </div>
+                      <div
+                        className={`text-[10px] mt-0.5 line-clamp-2 leading-tight ${
+                          theme === 'light' ? 'text-slate-500' : 'text-slate-400'
+                        }`}
+                      >
                         {slide.content.join(' · ')}
                       </div>
                     </div>
@@ -594,7 +783,11 @@ export default function PresentationView({
           <button
             type="button"
             onClick={() => setIsSidebarOpen(true)}
-            className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-2xl bg-white border border-slate-200 shadow-md flex items-center justify-center hover:shadow-lg hover:border-slate-300 transition z-20"
+            className={`absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-2xl border shadow-md flex items-center justify-center hover:shadow-lg transition z-20 ${
+              theme === 'light'
+                ? 'bg-white border-slate-200 hover:border-slate-300'
+                : 'bg-neutral-900 border-neutral-700 hover:border-neutral-500'
+            }`}
             aria-label="Open slide list"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -620,9 +813,18 @@ export default function PresentationView({
                     id={`main-slide-${index}`}
                     className="group relative shadow-2xl border aspect-[16/9] overflow-auto rounded-none"
                     style={{
-                      backgroundColor: 'var(--background-color, #ffffff)',
-                      borderColor: 'var(--stroke, #E5E5E5)',
-                      color: 'var(--background-text, #0f172a)',
+                      backgroundColor:
+                        theme === 'light'
+                          ? 'var(--background-color, #ffffff)'
+                          : 'var(--background-color, #020617)',
+                      borderColor:
+                        theme === 'light'
+                          ? 'var(--stroke, #E5E5E5)'
+                          : 'var(--stroke, #1f2937)',
+                      color:
+                        theme === 'light'
+                          ? 'var(--background-text, #0f172a)'
+                          : 'var(--background-text, #e5e7eb)',
                       fontFamily: 'var(--body-font-family, inherit)',
                     }}
                   >
@@ -637,7 +839,13 @@ export default function PresentationView({
                             Edit slide
                           </button>
                           <div className="pointer-events-auto flex items-center gap-2">
-                            <button className="flex items-center gap-1.5 px-3 py-1.5 bg-white/90 backdrop-blur border border-slate-200 rounded-full text-xs text-slate-600 hover:bg-slate-50 shadow-sm transition">
+                            <button
+                              className={`flex items-center gap-1.5 px-3 py-1.5 bg-white/90 backdrop-blur border rounded-full text-xs shadow-sm transition ${
+                                theme === 'light'
+                                  ? 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                                  : 'border-neutral-700 text-slate-800 hover:bg-slate-100'
+                              }`}
+                            >
                               <svg className="w-4 h-4 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
                               </svg>
@@ -646,7 +854,11 @@ export default function PresentationView({
                             <button
                               type="button"
                               onClick={() => handleDeleteSlide(index)}
-                              className="p-2 bg-white/90 backdrop-blur border border-slate-200 rounded-full text-slate-400 hover:text-red-500 hover:border-red-200 shadow-sm transition"
+                              className={`p-2 bg-white/90 backdrop-blur border rounded-full shadow-sm transition ${
+                                theme === 'light'
+                                  ? 'border-slate-200 text-slate-400 hover:text-red-500 hover:border-red-200'
+                                  : 'border-neutral-700 text-slate-700 hover:text-red-500 hover:border-red-300'
+                              }`}
                             >
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -660,7 +872,11 @@ export default function PresentationView({
                           <button
                             type="button"
                             onClick={() => handleAddSlideBelow(index)}
-                            className="pointer-events-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/95 border border-slate-200 text-xs text-slate-700 shadow-sm hover:bg-slate-50 hover:border-slate-300 transition"
+                            className={`pointer-events-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs shadow-sm transition ${
+                              theme === 'light'
+                                ? 'bg-white/95 border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                                : 'bg-neutral-900/95 border-neutral-700 text-slate-100 hover:bg-neutral-800 hover:border-neutral-500'
+                            }`}
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -725,7 +941,9 @@ export default function PresentationView({
                             </div>
                           ) : (
                             <div
-                              className={`text-slate-400 text-5xl font-bold opacity-30 ${enableSelectEdit ? 'cursor-pointer' : ''}`}
+                              className={`text-5xl font-bold opacity-30 ${
+                                enableSelectEdit ? 'cursor-pointer' : ''
+                              } ${theme === 'light' ? 'text-slate-400' : 'text-slate-200'}`}
                             >
                               {slide.number}
                             </div>
@@ -786,16 +1004,42 @@ export default function PresentationView({
 
         {/* ─── Right History Sidebar ─── */}
         {isHistoryOpen && (
-          <aside className="w-[280px] bg-white border border-slate-200 rounded-2xl ml-4 flex flex-col shrink-0 overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+            <aside
+              className={`w-[280px] rounded-2xl ml-4 flex flex-col shrink-0 overflow-hidden border ${
+                theme === 'light'
+                  ? 'bg-white border-slate-200'
+                  : 'bg-neutral-900/95 border-neutral-700'
+              }`}
+            >
+            <div
+              className={`flex items-center justify-between px-4 py-3 border-b ${
+                theme === 'light' ? 'border-slate-100' : 'border-neutral-800'
+              }`}
+            >
               <div>
-                <h2 className="text-sm font-semibold text-slate-900">Your presentations</h2>
-                <p className="text-[11px] text-slate-500">Recent decks you generated</p>
+                <h2
+                  className={`text-sm font-semibold ${
+                    theme === 'light' ? 'text-slate-900' : 'text-slate-50'
+                  }`}
+                >
+                  Your presentations
+                </h2>
+                <p
+                  className={`text-[11px] ${
+                    theme === 'light' ? 'text-slate-500' : 'text-slate-300'
+                  }`}
+                >
+                  Recent decks you generated
+                </p>
               </div>
               <button
                 type="button"
                 onClick={() => setIsHistoryOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition"
+                className={`p-1.5 rounded-lg transition ${
+                  theme === 'light'
+                    ? 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                    : 'text-slate-300 hover:text-slate-50 hover:bg-neutral-800'
+                }`}
                 aria-label="Close history panel"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -806,13 +1050,23 @@ export default function PresentationView({
 
             <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2 text-sm">
               {isLoadingHistory && (
-                <div className="text-xs text-slate-500 px-2 py-1">Loading history…</div>
+                <div
+                  className={`text-xs px-2 py-1 ${
+                    theme === 'light' ? 'text-slate-500' : 'text-slate-300'
+                  }`}
+                >
+                  Loading history…
+                </div>
               )}
               {historyError && !isLoadingHistory && (
                 <div className="text-xs text-rose-500 px-2 py-1">{historyError}</div>
               )}
               {!isLoadingHistory && !historyError && history.length === 0 && (
-                <div className="text-xs text-slate-400 px-2 py-1">
+                <div
+                  className={`text-xs px-2 py-1 ${
+                    theme === 'light' ? 'text-slate-400' : 'text-slate-500'
+                  }`}
+                >
                   No saved presentations yet.
                 </div>
               )}
@@ -821,16 +1075,34 @@ export default function PresentationView({
                 <button
                   key={item.id}
                   type="button"
-                  className="w-full text-left rounded-xl border border-slate-200 bg-white px-3 py-2.5 hover:border-slate-300 hover:shadow-sm transition"
+                  className={`w-full text-left rounded-xl border px-3 py-2.5 transition ${
+                    theme === 'light'
+                      ? 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
+                      : 'border-neutral-700 bg-neutral-900 hover:border-neutral-500 hover:shadow-sm'
+                  }`}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-medium text-slate-900 truncate">{item.title}</span>
-                    <span className="text-[10px] text-slate-400 whitespace-nowrap">
+                    <span
+                      className={`text-xs font-medium truncate ${
+                        theme === 'light' ? 'text-slate-900' : 'text-slate-100'
+                      }`}
+                    >
+                      {item.title}
+                    </span>
+                    <span
+                      className={`text-[10px] whitespace-nowrap ${
+                        theme === 'light' ? 'text-slate-400' : 'text-slate-400'
+                      }`}
+                    >
                       {item.slideCount} slides
                     </span>
                   </div>
                   {item.description && (
-                    <p className="mt-1 text-[11px] text-slate-500 line-clamp-2">
+                    <p
+                      className={`mt-1 text-[11px] line-clamp-2 ${
+                        theme === 'light' ? 'text-slate-500' : 'text-slate-300'
+                      }`}
+                    >
                       {item.description}
                     </p>
                   )}
