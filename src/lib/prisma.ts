@@ -9,17 +9,17 @@ const globalForPrisma = globalThis as unknown as {
 function createPrismaClient(): PrismaClient {
   const databaseUrl = process.env.DATABASE_URL
   if (!databaseUrl) {
-    throw new Error('DATABASE_URL environment variable is not set')
+    console.error('[Prisma] DATABASE_URL is NOT SET. Available env keys:', Object.keys(process.env).filter(k => k.includes('DATABASE') || k.includes('POSTGRES') || k.includes('NEON') || k.includes('DB')))
+    throw new Error('DATABASE_URL environment variable is not set. Please add it to your Vercel project settings.')
   }
 
-  // Use standard TCP connection via pg (node-postgres)
-  // Most reliable for Vercel serverless functions
+  console.log('[Prisma] Connecting to:', databaseUrl.replace(/\/\/.*@/, '//***@'))
+
   const pool = new pg.Pool({
     connectionString: databaseUrl,
   })
 
   const adapter = new PrismaPg(pool)
-
   return new PrismaClient({ adapter })
 }
 
