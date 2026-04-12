@@ -24,6 +24,7 @@ export default function AppMakerPage() {
   const [slideCount, setSlideCount] = useState(5)
   const [language, setLanguage] = useState('English')
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false)
+  const [isRoutingToDashboard, setIsRoutingToDashboard] = useState(false)
   const [advancedSettings, setAdvancedSettings] = useState<AdvancedSettings>({
     tone: 'default',
     verbosity: 'standard',
@@ -237,7 +238,7 @@ Write out the slides in the exact text format above so they can be parsed correc
           <div className="ml-auto flex items-center gap-2">
             <button
               type="button"
-              onClick={() => router.push('/dashboard')}
+              onClick={() => setIsRoutingToDashboard(true)}
               className={`hidden sm:inline-flex items-center justify-center rounded-full border px-3 py-1.5 text-[11px] font-medium transition ${
                 theme === 'light'
                   ? 'border-slate-200 text-slate-700 hover:bg-slate-100'
@@ -789,6 +790,13 @@ Write out the slides in the exact text format above so they can be parsed correc
           title="Preparing the Outline Content"
           isReady={false}
           onComplete={() => {}}
+        />
+      )}
+
+      {isRoutingToDashboard && (
+        <AuthLoadingBar
+          userEmail={null}
+          onComplete={() => router.push('/dashboard')}
         />
       )}
     </div>

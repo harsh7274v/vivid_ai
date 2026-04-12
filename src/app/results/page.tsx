@@ -1,7 +1,7 @@
 "use client"
 
 import { useSearchParams, useRouter } from 'next/navigation'
-import { Suspense, useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { ExternalLink } from 'lucide-react'
 import { puter } from '@heyputer/puter.js'
 import { templates } from '@/app/presentation-templates'
@@ -10,6 +10,7 @@ import { usePresentationStore } from '@/store/presentationStore'
 import PresentationView from './PresentationView'
 import { auth } from '@/lib/firebase'
 import { useTheme } from '@/providers/ThemeProvider'
+import AuthLoadingBar from '@/components/AuthLoadingBar'
 
 interface Slide {
   number: number
@@ -118,6 +119,8 @@ function AllTemplatesGrid() {
                   <div className="grid grid-cols-2 gap-2">
                     {previewLayouts.map((layout: TemplateWithData, index: number) => {
                       const LayoutComponent = layout.component
+                      const isChartLayout = /chart/i.test(layout.layoutName) ||
+                        /chart/i.test(layout.fileName || '')
 
                       return (
                         <div
@@ -125,12 +128,18 @@ function AllTemplatesGrid() {
                           className="relative overflow-hidden aspect-video rounded border bg-slate-100 border-slate-200 dark:bg-neutral-900 dark:border-neutral-700"
                         >
                           <div className="absolute inset-0 bg-transparent z-10" />
-                          <div
-                            className="transform scale-[0.12] origin-top-left"
-                            style={{ width: '833.33%', height: '833.33%' }}
-                          >
-                            <LayoutComponent data={layout.sampleData} />
-                          </div>
+                          {isChartLayout ? (
+                            <div className="flex h-full w-full items-center justify-center text-[10px] text-slate-500 dark:text-slate-300 select-none">
+                              Chart preview
+                            </div>
+                          ) : (
+                            <div
+                              className="transform scale-[0.12] origin-top-left"
+                              style={{ width: '833.33%', height: '833.33%' }}
+                            >
+                              <LayoutComponent data={layout.sampleData} />
+                            </div>
+                          )}
                         </div>
                       )
                     })}
@@ -350,7 +359,7 @@ function parseContent(rawContent: string): Slide[] {
   return slides
 }
 
-function ResultsContent() {
+function ResultsPageInner() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const { theme } = useTheme()
@@ -370,6 +379,7 @@ function ResultsContent() {
   const [layoutIndices, setLayoutIndices] = useState<number[]>([])
   const [isLoadingExisting, setIsLoadingExisting] = useState(false)
   const [existingError, setExistingError] = useState<string | null>(null)
+  const [showLoadingBar, setShowLoadingBar] = useState(true)
   const selectedTemplateId = usePresentationStore((state) => state.selectedTemplateId)
   const selectedTemplateGroup = useMemo(
     () => templates.find((t) => t.id === selectedTemplateId),
@@ -417,9 +427,12 @@ function ResultsContent() {
         )
 
         if (!isCancelled) {
+          // In edit mode, we go straight to the presentation editor.
+          // Use loaded slides as generatedSlides and skip outline/template steps.
           setGeneratedSlides(loadedSlides)
+          setOrderedSlides([])
           setActiveGeneratedSlideIndex(0)
-          // Jump directly to Presentation view
+          // Any index > orderedSlides.length (0) takes us to the Presentation view.
           setSelectedSlideIndex(1)
         }
       } catch (error) {
@@ -436,6 +449,11 @@ function ResultsContent() {
       isCancelled = true
     }
   }, [presentationId])
+
+  // Reset layout mapping when source slides or template changes
+  useEffect(() => {
+    setLayoutIndices([])
+  }, [orderedSlides.length, selectedTemplateId])
 
   if (!content && !presentationId) {
     return (
@@ -467,21 +485,15 @@ function ResultsContent() {
     )
   }
 
-  if (presentationId && isLoadingExisting) {
+  // Cover both the loading state and the animation completion timeframe
+  if (presentationId && (isLoadingExisting || showLoadingBar)) {
     return (
-      <div
-        className={`min-h-screen ${
-          theme === 'light'
-            ? 'bg-slate-50 text-slate-900'
-            : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 text-slate-50'
-        }`}
-      >
-        <main className="max-w-5xl mx-auto px-4 py-12">
-          <div className="text-center text-sm text-slate-500">
-            Loading presentation…
-          </div>
-        </main>
-      </div>
+      <AuthLoadingBar
+        userEmail={null}
+        title="Loading Presentation"
+        isReady={!isLoadingExisting}
+        onComplete={() => setShowLoadingBar(false)}
+      />
     )
   }
 
@@ -1040,11 +1052,6 @@ function ResultsContent() {
     setDraggingIndex(null)
   }
 
-  // Reset layout mapping when source slides or template changes
-  useEffect(() => {
-    setLayoutIndices([])
-  }, [slides.length, selectedTemplateId])
-
   return (
     <div
       className={`min-h-screen ${
@@ -1060,12 +1067,12 @@ function ResultsContent() {
             onClick={() => {
               if (presentationId) {
                 router.push('/dashboard')
-              } else if (selectedSlideIndex === slides.length) {
+              } else if (selectedSlideIndex === orderedSlides.length) {
                 setSelectedSlideIndex(0)
                 if (typeof window !== 'undefined') {
                   window.scrollTo({ top: 0, behavior: 'smooth' })
                 }
-              } else if (selectedSlideIndex === slides.length + 1) {
+              } else if (selectedSlideIndex === orderedSlides.length + 1) {
                 setSelectedSlideIndex(orderedSlides.length)
                 if (typeof window !== 'undefined') {
                   window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -1110,7 +1117,7 @@ function ResultsContent() {
           >
             {selectedSlideIndex < orderedSlides.length
               ? 'Outline & Content'
-              : selectedSlideIndex === slides.length
+              : selectedSlideIndex === orderedSlides.length
               ? 'Select Template'
               : 'Presentation'}
           </p>
@@ -1369,7 +1376,7 @@ function ResultsContent() {
               </button>
             </div>
           </>
-        ) : selectedSlideIndex === slides.length ? (
+        ) : selectedSlideIndex === orderedSlides.length ? (
           <>
             <AllTemplatesGrid />
 
@@ -1727,18 +1734,5 @@ function ResultsContent() {
 }
 
 export default function Results() {
-  return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-          <div className="text-center">
-            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-slate-900 mb-4" />
-            <p className="text-slate-500">Loading content...</p>
-          </div>
-        </div>
-      }
-    >
-      <ResultsContent />
-    </Suspense>
-  )
+  return <ResultsPageInner />
 }

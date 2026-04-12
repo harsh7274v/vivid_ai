@@ -9,6 +9,7 @@ import { DEFAULT_THEMES } from '@/constants/themes'
 import PresentationMode from './PresentationMode'
 import { auth } from '@/lib/firebase'
 import { useTheme } from '@/providers/ThemeProvider'
+import AuthLoadingBar from '@/components/AuthLoadingBar'
 
 interface Slide {
   number: number
@@ -69,6 +70,7 @@ export default function PresentationView({
   const [history, setHistory] = useState<PresentationHistoryItem[]>([])
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
   const [historyError, setHistoryError] = useState<string | null>(null)
+  const [isRoutingToDashboard, setIsRoutingToDashboard] = useState(false)
 
   useEffect(() => {
     setEditableSlides(generatedSlides)
@@ -599,7 +601,7 @@ export default function PresentationView({
 
           {/* Dashboard */}
           <button
-            onClick={() => router.push('/dashboard')}
+            onClick={() => setIsRoutingToDashboard(true)}
             className={`flex items-center gap-1.5 px-4 py-1.5 font-medium text-sm rounded-lg transition border ${
               theme === 'light'
                 ? 'border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -952,7 +954,12 @@ export default function PresentationView({
                         {/* Content side */}
                         <div
                           className="p-10 flex flex-col justify-center"
-                          style={{ color: 'var(--background-text, #0f172a)' }}
+                          style={{
+                            color:
+                              theme === 'light'
+                                ? 'var(--background-text, #0f172a)'
+                                : 'var(--background-text, #f9fafb)',
+                          }}
                         >
                           <h2
                             className="text-3xl md:text-4xl font-bold tracking-tight mb-3 leading-tight outline-none"
@@ -973,7 +980,12 @@ export default function PresentationView({
                               <div key={idx} className="flex items-start gap-3">
                                 <div
                                   className="mt-2 w-2.5 h-2.5 rounded-full flex-shrink-0"
-                                  style={{ backgroundColor: 'var(--background-text, #0f172a)' }}
+                                    style={{
+                                      backgroundColor:
+                                        theme === 'light'
+                                          ? 'var(--background-text, #0f172a)'
+                                          : 'var(--background-text, #f9fafb)',
+                                    }}
                                 />
                                 <p
                                   className="outline-none"
@@ -1125,6 +1137,12 @@ export default function PresentationView({
         layoutIndices={layoutIndices}
         buildSlideData={buildSlideData || undefined}
         templateComponent={LayoutComponent}
+      />
+    )}
+    {isRoutingToDashboard && (
+      <AuthLoadingBar
+        userEmail={null}
+        onComplete={() => router.push('/dashboard')}
       />
     )}
     </>

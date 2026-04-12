@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ExternalLink, LogOut, ChevronDown } from 'lucide-react'
 import { templates } from '@/app/presentation-templates'
 import type {
@@ -47,6 +47,24 @@ export default function DashboardPage() {
   const setSelectedTemplateId = usePresentationStore(
     (state) => state.setSelectedTemplateId
   )
+  const queryClient = useQueryClient()
+
+  const handleDelete = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!confirm('Are you sure you want to delete this presentation?')) return
+    
+    try {
+      const res = await fetch(`/api/presentations/${id}`, {
+        method: 'DELETE',
+      })
+      if (!res.ok) throw new Error('Failed to delete')
+      
+      await queryClient.invalidateQueries({ queryKey: ['presentations-history'] })
+    } catch (error) {
+      console.error('Delete error:', error)
+      alert('Failed to delete presentation')
+    }
+  }
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -495,7 +513,11 @@ export default function DashboardPage() {
                         <div className="mt-2 flex items-center justify-between gap-2 text-[10px]">
                           <button
                             type="button"
-                            onClick={() => router.push(`/results?presentationId=${encodeURIComponent(p.id)}`)}
+                            onClick={() =>
+                              router.push(
+                                `/results?presentationId=${encodeURIComponent(p.id)}`
+                              )
+                            }
                             className={`rounded-full px-2.5 py-1 font-medium ${
                               theme === 'light'
                                 ? 'bg-slate-900 text-slate-50'
@@ -506,6 +528,7 @@ export default function DashboardPage() {
                           </button>
                           <button
                             type="button"
+                            onClick={(e) => handleDelete(p.id, e)}
                             className="rounded-full px-2.5 py-1 text-rose-500 hover:text-rose-400"
                           >
                             Delete
@@ -938,6 +961,7 @@ export default function DashboardPage() {
                         </button>
                         <button
                           type="button"
+                          onClick={(e) => handleDelete(p.id, e)}
                           className="rounded-full px-2.5 py-1 text-rose-500 hover:text-rose-400"
                         >
                           Delete

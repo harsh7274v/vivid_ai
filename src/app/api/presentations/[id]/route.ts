@@ -76,3 +76,31 @@ export async function GET(
     )
   }
 }
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params
+
+    if (!id) {
+      return NextResponse.json(
+        { error: 'Presentation id is required' },
+        { status: 400 }
+      )
+    }
+
+    await prisma.presentation.delete({
+      where: { id },
+    })
+
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error('Failed to delete presentation:', error)
+    return NextResponse.json(
+      { error: 'Failed to delete presentation' },
+      { status: 500 }
+    )
+  }
+}
