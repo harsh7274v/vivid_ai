@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
-import { ExternalLink } from 'lucide-react'
+import { ExternalLink, LogOut, ChevronDown } from 'lucide-react'
 import { templates } from '@/app/presentation-templates'
 import type {
   TemplateLayoutsWithSettings,
@@ -11,6 +11,7 @@ import type {
 } from '@/app/presentation-templates/utils'
 import { usePresentationStore } from '@/store/presentationStore'
 import { useTheme } from '@/providers/ThemeProvider'
+import AuthLoadingBar from '@/components/AuthLoadingBar'
 
 interface PresentationSummary {
   id: string
@@ -39,6 +40,9 @@ export default function DashboardPage() {
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const [userName, setUserName] = useState<string | null>(null)
   const [activeView, setActiveView] = useState<'overview' | 'templates' | 'presentations'>('overview')
+  const [profileDropdownOpen, setProfileDropdownOpen] = useState(false)
+  const [showLoadingBar, setShowLoadingBar] = useState(false)
+  const profileDropdownRef = useRef<HTMLDivElement>(null)
   const selectedTemplateId = usePresentationStore((state) => state.selectedTemplateId)
   const setSelectedTemplateId = usePresentationStore(
     (state) => state.setSelectedTemplateId
@@ -70,6 +74,26 @@ export default function DashboardPage() {
     } catch {
       router.replace('/')
     }
+  }, [router])
+
+  // Close profile dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        profileDropdownRef.current &&
+        !profileDropdownRef.current.contains(e.target as Node)
+      ) {
+        setProfileDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const handleLogout = useCallback(() => {
+    window.localStorage.removeItem('vivid_auth_session')
+    setProfileDropdownOpen(false)
+    router.replace('/')
   }, [router])
 
   const { data, isLoading } = useQuery<PresentationSummary[]>({
@@ -201,28 +225,87 @@ export default function DashboardPage() {
               )}
             </button>
 
-            <div
-              className={`flex items-center gap-2 rounded-full border px-2 py-1 ${
-                theme === 'light'
-                  ? 'border-slate-200 bg-slate-50'
-                  : 'border-neutral-700 bg-gradient-to-r from-black via-neutral-900 to-neutral-800'
-              }`}
-            >
-              <div
-                className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${
+            <div className="relative" ref={profileDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setProfileDropdownOpen((prev) => !prev)}
+                className={`flex items-center gap-2 rounded-full border px-2 py-1 transition-colors ${
                   theme === 'light'
-                    ? 'bg-slate-900 text-slate-50'
-                    : 'bg-slate-100 text-slate-900'
+                    ? 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                    : 'border-neutral-700 bg-gradient-to-r from-black via-neutral-900 to-neutral-800 hover:border-neutral-500'
                 }`}
               >
-                {(userName || 'U').charAt(0).toUpperCase()}
-              </div>
-              <div className="hidden sm:flex flex-col leading-tight">
-                <span className="text-[11px] font-medium">
-                  {userName || 'User'}
-                </span>
-                <span className="text-[10px] text-slate-500">Free plan</span>
-              </div>
+                <div
+                  className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${
+                    theme === 'light'
+                      ? 'bg-slate-900 text-slate-50'
+                      : 'bg-slate-100 text-slate-900'
+                  }`}
+                >
+                  {(userName || 'U').charAt(0).toUpperCase()}
+                </div>
+                <div className="hidden sm:flex flex-col leading-tight">
+                  <span className="text-[11px] font-medium">
+                    {userName || 'User'}
+                  </span>
+                  <span className="text-[10px] text-slate-500">Free plan</span>
+                </div>
+                <ChevronDown
+                  className={`w-3 h-3 transition-transform duration-200 ${
+                    profileDropdownOpen ? 'rotate-180' : ''
+                  } ${theme === 'light' ? 'text-slate-400' : 'text-slate-500'}`}
+                />
+              </button>
+
+              {/* Profile dropdown */}
+              {profileDropdownOpen && (
+                <div
+                  className={`absolute right-0 top-full mt-2 w-56 rounded-xl border shadow-lg z-50 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150 ${
+                    theme === 'light'
+                      ? 'bg-white border-slate-200 shadow-slate-200/60'
+                      : 'bg-neutral-900 border-neutral-700 shadow-black/60'
+                  }`}
+                >
+                  {/* User info header */}
+                  <div
+                    className={`px-4 py-3 border-b ${
+                      theme === 'light' ? 'border-slate-100' : 'border-neutral-800'
+                    }`}
+                  >
+                    <p className="text-xs font-medium truncate">
+                      {userName || 'User'}
+                    </p>
+                    <p className="text-[10px] text-slate-500 truncate mt-0.5">
+                      {userEmail || ''}
+                    </p>
+                    <span
+                      className={`inline-flex items-center mt-1.5 rounded-full px-2 py-0.5 text-[9px] font-medium ${
+                        theme === 'light'
+                          ? 'bg-emerald-50 text-emerald-700'
+                          : 'bg-emerald-500/10 text-emerald-300'
+                      }`}
+                    >
+                      Free plan
+                    </span>
+                  </div>
+
+                  {/* Logout button */}
+                  <div className="p-1.5">
+                    <button
+                      type="button"
+                      onClick={handleLogout}
+                      className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+                        theme === 'light'
+                          ? 'text-rose-600 hover:bg-rose-50'
+                          : 'text-rose-400 hover:bg-rose-500/10'
+                      }`}
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      Log out
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </header>
@@ -263,7 +346,7 @@ export default function DashboardPage() {
 
             <div className="flex flex-wrap gap-3">
               <button
-                onClick={() => router.push('/app-maker')}
+                onClick={() => setShowLoadingBar(true)}
                 className={`rounded-full px-4 py-2 text-xs font-medium shadow-sm transition ${
                   theme === 'light'
                     ? 'bg-slate-900 text-slate-50 hover:bg-black'
@@ -361,7 +444,7 @@ export default function DashboardPage() {
                     <span>No presentations yet.</span>
                     <button
                       type="button"
-                      onClick={() => router.push('/app-maker')}
+                      onClick={() => setShowLoadingBar(true)}
                       className={`rounded-full px-3 py-1.5 text-[11px] font-medium shadow-sm ${
                         theme === 'light'
                           ? 'bg-slate-900 text-slate-50 hover:bg-black'
@@ -460,7 +543,7 @@ export default function DashboardPage() {
                 )}
                 <button
                   type="button"
-                  onClick={() => router.push('/app-maker')}
+                  onClick={() => setShowLoadingBar(true)}
                   className={`mt-auto w-full rounded-full px-3 py-1.5 text-[11px] font-medium shadow-sm ${
                     theme === 'light'
                       ? 'bg-slate-900 text-slate-50 hover:bg-black'
@@ -793,7 +876,7 @@ export default function DashboardPage() {
                   <span>No presentations yet.</span>
                   <button
                     type="button"
-                    onClick={() => router.push('/app-maker')}
+                    onClick={() => setShowLoadingBar(true)}
                     className={`rounded-full px-3 py-1.5 text-[11px] font-medium shadow-sm ${
                       theme === 'light'
                         ? 'bg-slate-900 text-slate-50 hover:bg-black'
@@ -868,6 +951,13 @@ export default function DashboardPage() {
           </section>
         )}
       </main>
+
+      {showLoadingBar && (
+        <AuthLoadingBar 
+          userEmail={null} 
+          onComplete={() => router.push('/app-maker')} 
+        />
+      )}
     </div>
   )
 }

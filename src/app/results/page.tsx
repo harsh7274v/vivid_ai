@@ -26,6 +26,7 @@ function AllTemplatesGrid() {
   const router = useRouter()
   const selectedTemplateId = usePresentationStore((state) => state.selectedTemplateId)
   const setSelectedTemplateId = usePresentationStore((state) => state.setSelectedTemplateId)
+  const { theme } = useTheme()
 
   // Calculate total layouts across all template groups
   const totalStaticLayouts = templates.reduce(
@@ -34,10 +35,26 @@ function AllTemplatesGrid() {
   )
 
   return (
-    <div className="bg-white rounded-lg shadow-sm p-8">
+    <div
+      className={`rounded-2xl border p-6 md:p-8 transition-colors duration-200 ${
+        theme === 'light'
+          ? 'bg-white border-slate-200 shadow-sm'
+          : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 border-neutral-800 shadow-[0_18px_60px_rgba(0,0,0,1)]'
+      }`}
+    >
       <div className="text-center mb-8">
-        <h2 className="text-2xl font-semibold text-gray-900">All Templates</h2>
-        <p className="text-gray-600 mt-2 text-sm">
+        <h2
+          className={`text-2xl font-semibold ${
+            theme === 'light' ? 'text-slate-900' : 'text-slate-50'
+          }`}
+        >
+          All Templates
+        </h2>
+        <p
+          className={`mt-2 text-sm ${
+            theme === 'light' ? 'text-slate-500' : 'text-slate-100'
+          }`}
+        >
           {totalStaticLayouts} layouts across {templates.length} templates
         </p>
       </div>
@@ -50,21 +67,30 @@ function AllTemplatesGrid() {
             return (
               <div
                 key={template.id}
-                className={`bg-white border rounded-lg cursor-pointer transition-all duration-200 group overflow-hidden ${selectedTemplateId === template.id
-                  ? 'border-blue-500 ring-2 ring-blue-200 shadow-lg'
-                  : 'hover:shadow-lg'
-                  }`}
+                className={`border rounded-lg cursor-pointer transition-all duration-200 group overflow-hidden ${
+                  selectedTemplateId === template.id
+                    ? theme === 'light'
+                      ? 'bg-white border-slate-900 ring-2 ring-slate-300 shadow-lg'
+                      : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 border-neutral-400 ring-2 ring-neutral-600/80 shadow-[0_18px_60px_rgba(0,0,0,1)]'
+                    : theme === 'light'
+                    ? 'bg-white border-slate-200 hover:shadow-md'
+                    : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 border-neutral-800 hover:shadow-md'
+                }`}
                 onClick={() => {
                   setSelectedTemplateId(template.id)
                 }}
               >
                 <div className="p-5">
                   <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-xl font-bold text-gray-900 capitalize truncate pr-2">
+                    <h3
+                      className={`text-xl font-semibold capitalize truncate pr-2 ${
+                        theme === 'light' ? 'text-slate-900' : 'text-slate-50'
+                      }`}
+                    >
                       {template.name}
                     </h3>
                     <div className="flex items-center gap-2">
-                      <span className="px-2.5 py-0.5 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
+                      <span className="px-2.5 py-0.5 rounded-full text-sm font-medium bg-slate-100 text-slate-700 dark:bg-neutral-800 dark:text-slate-200">
                         {template.layouts.length}
                       </span>
                       <button
@@ -73,7 +99,7 @@ function AllTemplatesGrid() {
                           e.stopPropagation()
                           router.push(`/all-templates/${template.id}`)
                         }}
-                        className="p-1 rounded-full text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors shrink-0"
+                        className="p-1 rounded-full text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-colors shrink-0"
                         aria-label="Preview template"
                       >
                         <ExternalLink className="w-4 h-4" />
@@ -81,7 +107,11 @@ function AllTemplatesGrid() {
                     </div>
                   </div>
 
-                  <p className="text-sm text-gray-600 mb-4 line-clamp-2 h-10">
+                  <p
+                    className={`text-sm mb-4 line-clamp-2 h-10 ${
+                      theme === 'light' ? 'text-slate-500' : 'text-slate-300'
+                    }`}
+                  >
                     {template.description}
                   </p>
 
@@ -92,7 +122,7 @@ function AllTemplatesGrid() {
                       return (
                         <div
                           key={`${template.id}-preview-${index}`}
-                          className="relative bg-gray-100 border border-gray-200 overflow-hidden aspect-video rounded"
+                          className="relative overflow-hidden aspect-video rounded border bg-slate-100 border-slate-200 dark:bg-neutral-900 dark:border-neutral-700"
                         >
                           <div className="absolute inset-0 bg-transparent z-10" />
                           <div

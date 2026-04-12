@@ -6,6 +6,7 @@ import { useMutation } from '@tanstack/react-query'
 import { usePresentationStore } from '@/store/presentationStore'
 import { puter } from '@heyputer/puter.js'
 import { useTheme } from '@/providers/ThemeProvider'
+import AuthLoadingBar from '@/components/AuthLoadingBar'
 
 interface AdvancedSettings {
   tone: string
@@ -781,6 +782,14 @@ Write out the slides in the exact text format above so they can be parsed correc
             </div>
           </div>
         </div>
+      )}
+
+      {generateMutation.isPending && (
+        <AuthLoadingBar
+          title="Preparing the Outline Content"
+          isReady={false}
+          onComplete={() => {}}
+        />
       )}
     </div>
   )

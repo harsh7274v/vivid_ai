@@ -3,10 +3,11 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTheme } from '@/providers/ThemeProvider'
 import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth'
 import { auth } from '@/lib/firebase'
+import AuthLoadingBar from '@/components/AuthLoadingBar'
 
 type AuthMode = 'login' | 'signup'
 
@@ -34,6 +35,7 @@ export default function Home() {
   const [authLoading, setAuthLoading] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [showLoadingBar, setShowLoadingBar] = useState(false)
   const { theme, toggleTheme } = useTheme()
 
   const textRevealProps = {
@@ -49,12 +51,16 @@ export default function Home() {
     }
   }, [])
 
+  const handleLoadingComplete = useCallback(() => {
+    router.push('/dashboard')
+  }, [router])
+
   const openAuth = (mode: AuthMode) => {
     setAuthMode(mode)
     setAuthError(null)
-    // If user already has a valid JWT session, go straight to the app
+    // If user already has a valid JWT session, show loading bar then go to dashboard
     if (hasValidSession()) {
-      router.push('/dashboard')
+      setShowLoadingBar(true)
       return
     }
     setShowAuthModal(true)
@@ -87,7 +93,7 @@ export default function Home() {
         setIsAuthenticated(true)
       }
       setShowAuthModal(false)
-      router.push('/dashboard')
+      setShowLoadingBar(true)
     } catch (error: any) {
       if (error?.code !== 'auth/popup-closed-by-user') {
         setAuthError(error?.message || 'Failed to authenticate with Google')
@@ -707,6 +713,17 @@ export default function Home() {
           </div>
         </section>
       </main>
+
+      {showLoadingBar && (
+        <AuthLoadingBar 
+          userEmail={
+            typeof window !== 'undefined'
+              ? JSON.parse(window.localStorage.getItem('vivid_auth_session') || '{}')?.email || null
+              : null
+          }
+          onComplete={handleLoadingComplete} 
+        />
+      )}
 
       {showAuthModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">

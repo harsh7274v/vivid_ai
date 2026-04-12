@@ -15,8 +15,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Presenton - AI Presentation Maker",
+  title: "Vivid AI - AI Presentation Maker",
   description: "Create polished presentations with AI in minutes",
+  icons: {
+    icon: "/icon.png",
+  },
 };
 
 export default function RootLayout({
