@@ -1,7 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  serverExternalPackages: [
+    "@prisma/adapter-neon",
+    "@prisma/adapter-pg",
+    "@neondatabase/serverless",
+    "pg",
+  ],
 };
 
 export default nextConfig;
