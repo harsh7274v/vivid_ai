@@ -1,7 +1,7 @@
 "use client"
 
 import { useSearchParams, useRouter } from 'next/navigation'
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, Suspense } from 'react'
 import { ExternalLink } from 'lucide-react'
 import { puter } from '@heyputer/puter.js'
 import { templates } from '@/app/presentation-templates'
@@ -1734,5 +1734,9 @@ function ResultsPageInner() {
 }
 
 export default function Results() {
-  return <ResultsPageInner />
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-slate-50 dark:bg-black" />}>
+      <ResultsPageInner />
+    </Suspense>
+  )
 }
