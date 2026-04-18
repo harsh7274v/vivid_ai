@@ -3,7 +3,6 @@
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useState, useMemo, useEffect, Suspense } from 'react'
 import { ExternalLink } from 'lucide-react'
-import { puter } from '@heyputer/puter.js'
 import { templates } from '@/app/presentation-templates'
 import type { TemplateLayoutsWithSettings, TemplateWithData } from '@/app/presentation-templates/utils'
 import { usePresentationStore } from '@/store/presentationStore'
@@ -11,6 +10,33 @@ import PresentationView from './PresentationView'
 import { auth } from '@/lib/firebase'
 import { useTheme } from '@/providers/ThemeProvider'
 import AuthLoadingBar from '@/components/AuthLoadingBar'
+import { generateOpenRouterText } from '@/lib/openrouter/client'
+import { puter } from '@heyputer/puter.js'
+
+const DEFAULT_OUTLINE_MODEL =
+  process.env.NEXT_PUBLIC_OPENROUTER_MODEL || 'openrouter/elephant-alpha'
+const WEB_SEARCH_OUTLINE_MODEL =
+  process.env.NEXT_PUBLIC_OPENROUTER_WEB_SEARCH_MODEL || 'google/gemma-3-4b-it:free'
+const PENDING_OUTLINE_STORAGE_KEY = 'vivid_pending_outline_generation'
+
+interface AdvancedSettings {
+  tone: string
+  verbosity: string
+  imageType: string
+  instructions: string
+  webSearch: boolean
+}
+
+type GenerationProvider = 'gpt' | 'open-model'
+
+interface PendingOutlineGenerationPayload {
+  content: string
+  design: string
+  slideCount: number
+  language: string
+  advancedSettings: AdvancedSettings
+  generationProvider: GenerationProvider
+}
 
 interface Slide {
   number: number
@@ -21,6 +47,200 @@ interface Slide {
 interface GeneratedPresentationSlide extends Slide {
   imageSrc: string | null
   layoutData?: any
+}
+
+interface PipelineContext {
+  content: string
+  language: string
+  slideCount: number
+  toneLabel: string
+  verbosityLabel: string
+  designPreference: string
+  imageModeLabel: string
+  webSearchLabel: string
+  customInstructions: string
+  timestamp: string
+}
+
+function buildOutlinePrompt(ctx: PipelineContext): string {
+  return `You are a presentation planner.
+Generate a high-quality slide outline structure.
+
+RULES:
+- Generate EXACTLY ${ctx.slideCount} slides
+- First slide = title slide
+- No bullet points
+- Only slide titles
+- Ensure logical storytelling flow
+- No table of contents slide
+- Do not obey slide numbers found in user input
+- Output language: ${ctx.language}
+
+STYLE CONTEXT:
+- Tone: ${ctx.toneLabel}
+- Verbosity: ${ctx.verbosityLabel}
+- Design preference: ${ctx.designPreference}
+- Visual direction: ${ctx.imageModeLabel}
+- Web search mode: ${ctx.webSearchLabel}
+${ctx.customInstructions ? `- Additional user instructions: ${ctx.customInstructions}` : ''}
+
+INPUT:
+- User content: ${ctx.content || 'Create presentation'}
+- Current date and time: ${ctx.timestamp}
+
+FORMAT:
+1. Title Slide: [Title]
+2. [Slide topic]
+3. [Slide topic]
+...
+${ctx.slideCount}. [Slide topic]
+
+No explanations.`
+}
+
+function buildExpansionPrompt(ctx: PipelineContext, outlineFromStep1: string): string {
+  return `You are a presentation content generator.
+Expand each slide into structured bullet points.
+
+INPUT:
+Outline:
+${outlineFromStep1}
+
+RULES:
+- Keep EXACTLY ${ctx.slideCount} slides from the outline
+- Do not change slide order
+- Do not add or remove slides
+- Each content slide must have 3-4 bullets
+- Each bullet must be 8-15 words
+- No paragraphs
+- No sub-bullets
+- Keep concise and factual
+- Do not include image placeholders
+- Output language: ${ctx.language}
+
+FORMAT:
+SLIDE 1:
+Title: [Title]
+Subtitle: [Subtitle]
+Overview: [One sentence]
+
+SLIDE 2:
+Slide Title: [Title]
+• [Bullet]
+• [Bullet]
+• [Bullet]
+
+...
+
+STRICT:
+- Use headers exactly like "SLIDE n:" for every slide
+- For slides 2 to ${ctx.slideCount}, use only bullet lines after Slide Title
+- Do not output any text before or after slides`
+}
+
+function buildValidatorPrompt(generatedSlides: string, slideCount: number): string {
+  return `You are a strict output validator and fixer.
+
+Your job:
+- Fix formatting issues
+- Ensure all rules are followed exactly
+
+INPUT:
+${generatedSlides}
+
+CHECK:
+- Correct number of slides: ${slideCount}
+- Every slide header is exactly "SLIDE n:"
+- Slide 1 includes Title, Subtitle, and Overview
+- Slides 2-${slideCount} each have 3-4 bullets
+- Every bullet is 8-15 words and never more than 15 words
+- No paragraphs
+- No sub-bullets
+- No extra text outside the slide blocks
+
+If anything is wrong, fix it.
+
+OUTPUT:
+Return ONLY corrected presentation in this format:
+SLIDE 1:
+Title: ...
+Subtitle: ...
+Overview: ...
+
+SLIDE 2:
+Slide Title: ...
+• ...
+• ...
+• ...`
+}
+
+function validatePipelineOutput(content: string, slideCount: number): { isValid: boolean; issues: string[] } {
+  const issues: string[] = []
+  const headerRegex = /^\s*SLIDE\s+#?\s*(\d+)\s*:/gim
+  const headers = Array.from(content.matchAll(headerRegex)).map((m) => Number(m[1]))
+
+  if (headers.length !== slideCount) {
+    issues.push(`Expected ${slideCount} slides, found ${headers.length}.`)
+  }
+
+  if (headers.length > 0) {
+    const uniqueHeaders = new Set(headers)
+    for (let i = 1; i <= slideCount; i += 1) {
+      if (!uniqueHeaders.has(i)) {
+        issues.push(`Missing SLIDE ${i} header.`)
+      }
+    }
+  }
+
+  const slideBlocks = content
+    .split(/(?=^\s*SLIDE\s+#?\s*\d+\s*:)/gim)
+    .map((block) => block.trim())
+    .filter((block) => block.length > 0)
+
+  for (const block of slideBlocks) {
+    const slideNumberMatch = block.match(/^\s*SLIDE\s+#?\s*(\d+)\s*:/im)
+    const slideNumber = slideNumberMatch ? Number(slideNumberMatch[1]) : 0
+
+    if (slideNumber === 1) {
+      if (!/^\s*Title:\s*.+/im.test(block)) issues.push('Slide 1 is missing Title.')
+      if (!/^\s*Subtitle:\s*.+/im.test(block)) issues.push('Slide 1 is missing Subtitle.')
+      if (!/^\s*Overview:\s*.+/im.test(block)) issues.push('Slide 1 is missing Overview.')
+      continue
+    }
+
+    if (slideNumber >= 2) {
+      if (!/^\s*Slide Title:\s*.+/im.test(block)) {
+        issues.push(`Slide ${slideNumber} is missing Slide Title.`)
+      }
+
+      const bulletLines = (block.match(/^\s*•\s+.+$/gim) || []).map((line) => line.trim())
+      if (bulletLines.length < 3 || bulletLines.length > 4) {
+        issues.push(`Slide ${slideNumber} has ${bulletLines.length} bullets; expected 3-4.`)
+      }
+
+      for (const bullet of bulletLines) {
+        const text = bullet.replace(/^•\s+/, '').trim()
+        const words = text.split(/\s+/).filter(Boolean)
+        if (words.length < 8 || words.length > 15) {
+          issues.push(`Slide ${slideNumber} has bullet with ${words.length} words; expected 8-15.`)
+          break
+        }
+      }
+    }
+  }
+
+  return { isValid: issues.length === 0, issues }
+}
+
+function buildOutlineSkeleton(slideCount: number): Slide[] {
+  return Array.from({ length: Math.max(1, slideCount) }, (_, index) => ({
+    number: index + 1,
+    title: index === 0 ? 'Generating title slide...' : `Generating slide ${index + 1}...`,
+    content:
+      index === 0
+        ? ['Generating subtitle...', 'Generating overview...', 'Preparing structure...', 'Finalizing details...']
+        : ['Generating key point...', 'Generating key point...', 'Generating key point...'],
+  }))
 }
 
 function AllTemplatesGrid() {
@@ -176,8 +396,8 @@ function parseContent(rawContent: string): Slide[] {
     return cleaned.replace(/[,{]\s*$/, '').trim()
   }
 
-  // Split by slide markers (either "SLIDE #:" or "Slide #:")
-  const slideRegex = /(?:SLIDE\s+\d+:|Slide\s+\d+:)([\s\S]*?)(?=(?:SLIDE\s+\d+:|Slide\s+\d+:)|$)/g
+  // Split by slide markers, tolerating optional hash marker like "Slide #2:"
+  const slideRegex = /(?:SLIDE\s+#?\s*\d+:|Slide\s+#?\s*\d+:)([\s\S]*?)(?=(?:SLIDE\s+#?\s*\d+:|Slide\s+#?\s*\d+:)|$)/g
   const slideMatches = decodedContent.match(slideRegex)
 
   // Helper function to clean up newline characters and escape sequences
@@ -196,7 +416,7 @@ function parseContent(rawContent: string): Slide[] {
   if (slideMatches && slideMatches.length > 0) {
     slideMatches.forEach((slideBlock, index) => {
       // Extract slide title and number
-      const titleMatch = slideBlock.match(/(?:SLIDE|Slide)\s+(\d+):\s*([^\n]+)/i)
+      const titleMatch = slideBlock.match(/(?:SLIDE|Slide)\s+#?\s*(\d+):\s*([^\n]+)/i)
       const slideNumber = titleMatch ? parseInt(titleMatch[1]) : index + 1
 
       // Separate the main slide title from any inline bullet-style content
@@ -210,9 +430,11 @@ function parseContent(rawContent: string): Slide[] {
       }
 
       const slideTitle = cleanText(rawTitle)
+        .replace(/^Slide\s*Title:\s*/i, '')
+        .trim()
 
       // Extract content - handle both bullet points and line breaks
-      let contentSection = slideBlock.replace(/^(?:SLIDE|Slide)\s+\d+:[^\n]*\n?/, '')
+      let contentSection = slideBlock.replace(/^(?:SLIDE|Slide)\s+#?\s*\d+:[^\n]*\n?/, '')
 
       // If there was extra inline content after the title (e.g. "• Point 1 • Point 2"),
       // prepend it to the slide content so it becomes individual bullets.
@@ -359,13 +581,71 @@ function parseContent(rawContent: string): Slide[] {
   return slides
 }
 
+const blobToDataUrl = (blob: Blob): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    if (blob.size === 0) {
+      reject(new Error('Generated image blob is empty'))
+      return
+    }
+
+    const normalizedBlob = blob.type.startsWith('image/')
+      ? blob
+      : new Blob([blob], { type: 'image/png' })
+
+    const reader = new FileReader()
+    reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+    reader.onerror = () => reject(new Error('Failed to read generated image blob'))
+    reader.readAsDataURL(normalizedBlob)
+  })
+}
+
+const getImageUrlFromJsonPayload = (payload: unknown): string | null => {
+  if (!payload || typeof payload !== 'object') return null
+
+  const record = payload as Record<string, unknown>
+  const candidates = [record.image, record.imageUrl, record.image_url, record.url, record.data]
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue
+    const value = candidate.trim()
+    if (!value) continue
+    if (value.startsWith('data:image/')) return value
+    if (/^https?:\/\//i.test(value)) return value
+  }
+
+  return null
+}
+
+function buildAiImagePrompt(slide: Slide): string {
+  const title = slide.title.trim()
+  const visualConcept = title
+    .replace(/["'`]/g, '')
+    .replace(/\s+/g, ' ')
+    .slice(0, 140)
+
+  return [
+    'Create a single modern, high-quality landscape presentation image for this slide.',
+    `Visual concept: ${visualConcept}`,
+    'Style: editorial, polished, cinematic, and visual-first.',
+    'Hard constraint: image must contain zero readable text.',
+    'Do not draw letters, words, typography, captions, numbers, logos, watermarks, labels, posters, signs, screens with text, UI text, or documents.',
+    'If any text-like element appears, replace it with abstract shapes or blurred texture.',
+    'Use only the visual meaning of the concept, not the literal words.',
+  ].join('\n')
+}
+
 function ResultsPageInner() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const { theme } = useTheme()
   const presentationId = searchParams.get('presentationId')
-  const content = searchParams.get('content')
-  const slides = useMemo(() => (content ? parseContent(content) : []), [content])
+  const contentFromQuery = searchParams.get('content')
+  const pendingOutline = searchParams.get('pendingOutline') === '1'
+  const imageType = searchParams.get('imageType')
+  const [outlineContent, setOutlineContent] = useState<string | null>(contentFromQuery)
+  const [isGeneratingOutline, setIsGeneratingOutline] = useState(false)
+  const [outlineGenerationError, setOutlineGenerationError] = useState<string | null>(null)
+  const slides = useMemo(() => (outlineContent ? parseContent(outlineContent) : []), [outlineContent])
   const [orderedSlides, setOrderedSlides] = useState<Slide[]>(slides)
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null)
   const [bulletDragging, setBulletDragging] = useState<{
@@ -385,11 +665,168 @@ function ResultsPageInner() {
     () => templates.find((t) => t.id === selectedTemplateId),
     [selectedTemplateId]
   )
+  const useAiGeneratedImages = imageType === 'ai-generated'
+
+  useEffect(() => {
+    if (contentFromQuery) {
+      setOutlineContent(contentFromQuery)
+      setOutlineGenerationError(null)
+      setIsGeneratingOutline(false)
+    }
+  }, [contentFromQuery])
 
   // Reset ordered slides whenever fresh content is parsed
   useEffect(() => {
-    setOrderedSlides(slides)
-  }, [slides])
+    if (slides.length > 0) {
+      setOrderedSlides(slides)
+      return
+    }
+
+    if (!isGeneratingOutline) {
+      setOrderedSlides([])
+    }
+  }, [slides, isGeneratingOutline])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (presentationId) return
+    if (outlineContent) return
+    if (!pendingOutline) return
+
+    const rawPayload = window.localStorage.getItem(PENDING_OUTLINE_STORAGE_KEY)
+    if (!rawPayload) {
+      setOutlineGenerationError('Missing pending outline payload. Please generate again from App Maker.')
+      return
+    }
+
+    let payload: PendingOutlineGenerationPayload
+    try {
+      payload = JSON.parse(rawPayload) as PendingOutlineGenerationPayload
+    } catch {
+      setOutlineGenerationError('Invalid pending outline payload. Please generate again from App Maker.')
+      window.localStorage.removeItem(PENDING_OUTLINE_STORAGE_KEY)
+      return
+    }
+
+    if (!payload.content?.trim()) {
+      setOutlineGenerationError('Empty generation input. Please provide content and try again.')
+      window.localStorage.removeItem(PENDING_OUTLINE_STORAGE_KEY)
+      return
+    }
+
+    let isCancelled = false
+
+    const runPipeline = async () => {
+      setOutlineGenerationError(null)
+      setIsGeneratingOutline(true)
+      setSelectedSlideIndex(0)
+      setOrderedSlides(buildOutlineSkeleton(payload.slideCount))
+
+      const presentationDesignLabel =
+        payload.design === 'standard' ? 'Standard (Fixed Layout)' : 'Smart (Flexible Layout)'
+      const toneLabel = payload.advancedSettings.tone === 'default'
+        ? 'Professional'
+        : payload.advancedSettings.tone
+      const verbosityLabel = payload.advancedSettings.verbosity || 'standard'
+      const imageModeLabel = payload.advancedSettings.imageType === 'ai-generated'
+        ? 'AI-generated visual intent'
+        : 'Realistic/photo visual intent'
+      const webSearchLabel = payload.advancedSettings.webSearch
+        ? 'Enabled: you may incorporate up-to-date facts and market context where useful.'
+        : 'Disabled: rely only on the user input and generally-known background knowledge.'
+      const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 19)
+
+      const pipelineContext: PipelineContext = {
+        content: payload.content,
+        language: payload.language,
+        slideCount: payload.slideCount,
+        toneLabel,
+        verbosityLabel,
+        designPreference: presentationDesignLabel,
+        imageModeLabel,
+        webSearchLabel,
+        customInstructions: payload.advancedSettings.instructions,
+        timestamp,
+      }
+
+      const modelForOutlineGeneration = payload.advancedSettings.webSearch
+        ? WEB_SEARCH_OUTLINE_MODEL
+        : DEFAULT_OUTLINE_MODEL
+
+      const callGenerationModel = async (prompt: string): Promise<string> => {
+        if (payload.generationProvider === 'gpt') {
+          const puterResponse: any = await puter.ai.chat(prompt)
+          return typeof puterResponse === 'string'
+            ? puterResponse
+            : String(puterResponse?.message?.content ?? puterResponse?.text ?? puterResponse)
+        }
+
+        try {
+          return await generateOpenRouterText({
+            prompt,
+            model: modelForOutlineGeneration,
+          })
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error)
+          const shouldFallbackToDefaultModel =
+            payload.advancedSettings.webSearch &&
+            modelForOutlineGeneration !== DEFAULT_OUTLINE_MODEL &&
+            /429|rate\s*-?\s*limit/i.test(errorMessage)
+
+          if (!shouldFallbackToDefaultModel) {
+            throw error
+          }
+
+          return await generateOpenRouterText({
+            prompt,
+            model: DEFAULT_OUTLINE_MODEL,
+          })
+        }
+      }
+
+      try {
+        const outlinePrompt = buildOutlinePrompt(pipelineContext)
+        const outlineFromStep1 = await callGenerationModel(outlinePrompt)
+
+        const expansionPrompt = buildExpansionPrompt(pipelineContext, outlineFromStep1)
+        const expandedSlides = await callGenerationModel(expansionPrompt)
+
+        const validatorPrompt = buildValidatorPrompt(expandedSlides, payload.slideCount)
+        let responseText = await callGenerationModel(validatorPrompt)
+
+        const firstValidation = validatePipelineOutput(responseText, payload.slideCount)
+        if (!firstValidation.isValid) {
+          const retryPrompt = `${buildValidatorPrompt(responseText, payload.slideCount)}
+
+Detected issues to fix:
+${firstValidation.issues.map((issue) => `- ${issue}`).join('\n')}
+
+Apply all fixes now and return only corrected slides.`
+          responseText = await callGenerationModel(retryPrompt)
+        }
+
+        if (isCancelled) return
+
+        setOutlineContent(responseText)
+        setOutlineGenerationError(null)
+        window.localStorage.removeItem(PENDING_OUTLINE_STORAGE_KEY)
+      } catch (error) {
+        if (isCancelled) return
+        const message = error instanceof Error ? error.message : 'Failed to generate outline content'
+        setOutlineGenerationError(message)
+      } finally {
+        if (!isCancelled) {
+          setIsGeneratingOutline(false)
+        }
+      }
+    }
+
+    void runPipeline()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [pendingOutline, presentationId, outlineContent])
 
   // When opened from dashboard with a saved presentation id, load its slides
   useEffect(() => {
@@ -455,7 +892,7 @@ function ResultsPageInner() {
     setLayoutIndices([])
   }, [orderedSlides.length, selectedTemplateId])
 
-  if (!content && !presentationId) {
+  if (!outlineContent && !presentationId && !pendingOutline) {
     return (
       <div
         className={`min-h-screen ${
@@ -549,8 +986,10 @@ function ResultsPageInner() {
 
       const prompt = `${systemPrompt}\n\n${userPrompt}`
 
-      const response = await puter.ai.chat(prompt, { model: 'gpt-5.4-nano' })
-      const responseText = typeof response === 'string' ? response : JSON.stringify(response)
+      const responseText = await generateOpenRouterText({
+        prompt,
+        model: 'openrouter/elephant-alpha',
+      })
 
       let parsed: any
       try {
@@ -629,8 +1068,10 @@ function ResultsPageInner() {
 
       const prompt = `${systemPrompt}\n\n${userPrompt}`
 
-      const response = await puter.ai.chat(prompt, { model: 'gpt-5.4-nano' })
-      const responseText = typeof response === 'string' ? response : JSON.stringify(response)
+      const responseText = await generateOpenRouterText({
+        prompt,
+        model: 'openrouter/elephant-alpha',
+      })
 
       let parsed: any
       try {
@@ -707,8 +1148,10 @@ function ResultsPageInner() {
 
       const prompt = `${systemPrompt}\n\n${userPrompt}`
 
-      const response = await puter.ai.chat(prompt, { model: 'gpt-5.4-nano' })
-      const responseText = typeof response === 'string' ? response : JSON.stringify(response)
+      const responseText = await generateOpenRouterText({
+        prompt,
+        model: 'openrouter/elephant-alpha',
+      })
 
       let parsed: any
       try {
@@ -755,41 +1198,85 @@ function ResultsPageInner() {
       const generated = await Promise.all(
         orderedSlides.map(async (slide, index) => {
           try {
-            const response = await fetch('/api/images/pexels', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                query: `${slide.title} ${slide.content.join(' ')}`.slice(0, 200),
-                perPage: 1,
-                orientation: 'landscape',
-              }),
-            })
+            let imageUrl: string | null = null
 
-            if (!response.ok) {
-              console.error('Pexels API error for slide', slide.number, await response.text())
-              return {
-                ...slide,
-                imageSrc: null,
+            if (useAiGeneratedImages) {
+              const aiResponse = await fetch('/api/images/cloudflare-worker', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  prompt: buildAiImagePrompt(slide),
+                }),
+              })
+
+              if (!aiResponse.ok) {
+                console.error(
+                  'Cloudflare image worker error for slide',
+                  slide.number,
+                  await aiResponse.text()
+                )
+                return {
+                  ...slide,
+                  imageSrc: null,
+                }
               }
-            }
 
-            const data = (await response.json()) as {
-              photos?: Array<{
-                src?: Record<string, string>
-              }>
-            }
+              const contentType = aiResponse.headers.get('content-type') || ''
 
-            const photo = data.photos?.[0]
-            const src = photo?.src
-            const imageUrl =
-              src?.landscape ||
-              src?.large2x ||
-              src?.large ||
-              src?.medium ||
-              src?.original ||
-              null
+              if (contentType.includes('application/json')) {
+                const payload = await aiResponse.json().catch(() => null)
+                imageUrl = getImageUrlFromJsonPayload(payload)
+              } else {
+                const blob = await aiResponse.blob()
+                imageUrl = await blobToDataUrl(blob)
+              }
+
+              if (!imageUrl) {
+                console.error('Cloudflare worker returned a non-image payload for slide', slide.number)
+                return {
+                  ...slide,
+                  imageSrc: null,
+                }
+              }
+            } else {
+              const response = await fetch('/api/images/pexels', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  query: `${slide.title} ${slide.content.join(' ')}`.slice(0, 200),
+                  perPage: 1,
+                  orientation: 'landscape',
+                }),
+              })
+
+              if (!response.ok) {
+                console.error('Pexels API error for slide', slide.number, await response.text())
+                return {
+                  ...slide,
+                  imageSrc: null,
+                }
+              }
+
+              const data = (await response.json()) as {
+                photos?: Array<{
+                  src?: Record<string, string>
+                }>
+              }
+
+              const photo = data.photos?.[0]
+              const src = photo?.src
+              imageUrl =
+                src?.landscape ||
+                src?.large2x ||
+                src?.large ||
+                src?.medium ||
+                src?.original ||
+                null
+            }
 
             // For neo-general templates, keep the original outline points
             // so they can be rendered as bullets in the slide layouts,
@@ -1052,6 +1539,8 @@ function ResultsPageInner() {
     setDraggingIndex(null)
   }
 
+  const isOutlineTab = isGeneratingOutline || selectedSlideIndex < orderedSlides.length
+
   return (
     <div
       className={`min-h-screen ${
@@ -1115,7 +1604,7 @@ function ResultsPageInner() {
               theme === 'light' ? 'text-slate-500' : 'text-slate-300'
             }`}
           >
-            {selectedSlideIndex < orderedSlides.length
+            {isOutlineTab
               ? 'Outline & Content'
               : selectedSlideIndex === orderedSlides.length
               ? 'Select Template'
@@ -1123,11 +1612,66 @@ function ResultsPageInner() {
           </p>
         </div>
 
-        {selectedSlideIndex < orderedSlides.length ? (
+        {isOutlineTab ? (
           <>
+            {outlineGenerationError && (
+              <div className="mb-5 rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {outlineGenerationError}
+              </div>
+            )}
+
             {/* Slides Display */}
             <div className="space-y-5">
-              {orderedSlides.map((slide, index) => (
+              {isGeneratingOutline
+                ? orderedSlides.map((slide, index) => (
+                  <div key={index} className="flex items-stretch gap-3 animate-pulse">
+                    <div
+                      className={`mt-6 h-9 w-7 rounded-full ${
+                        theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'
+                      }`}
+                    />
+                    <div
+                      className={`flex-1 rounded-3xl overflow-hidden p-7 border ${
+                        theme === 'light'
+                          ? 'bg-white/80 border-slate-200/70'
+                          : 'bg-neutral-900/80 border-neutral-700/70'
+                      }`}
+                    >
+                      <div className="space-y-6">
+                        <div className="flex items-start gap-4">
+                          <div
+                            className={`flex-shrink-0 w-11 h-11 rounded-2xl ${
+                              theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'
+                            }`}
+                          />
+                          <div className="flex-1 space-y-3">
+                            <div
+                              className={`h-6 w-2/3 rounded ${
+                                theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'
+                              }`}
+                            />
+                            <div
+                              className={`h-1 w-10 rounded-full ${
+                                theme === 'light' ? 'bg-slate-300' : 'bg-slate-600'
+                              }`}
+                            />
+                          </div>
+                        </div>
+                        <div className="mt-3 space-y-2">
+                          {slide.content.map((_, bulletIdx) => (
+                            <div
+                              key={bulletIdx}
+                              className={`h-9 rounded-lg ${
+                                theme === 'light' ? 'bg-slate-100' : 'bg-slate-800'
+                              }`}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))
+                : orderedSlides.map((slide, index) => (
                 <div
                   key={index}
                   className="flex items-stretch gap-3"
@@ -1313,7 +1857,7 @@ function ResultsPageInner() {
                     </div>
                   </div>
                 </div>
-              ))}
+                ))}
             </div>
 
             {/* Action Buttons */}
@@ -1331,7 +1875,8 @@ function ResultsPageInner() {
                   element.click()
                   document.body.removeChild(element)
                 }}
-                className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-slate-50 font-semibold rounded-full hover:bg-black transition"
+                disabled={isGeneratingOutline || !orderedSlides.length}
+                className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-slate-50 font-semibold rounded-full hover:bg-black transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -1347,7 +1892,8 @@ function ResultsPageInner() {
                   navigator.clipboard.writeText(text)
                   alert('Content copied to clipboard!')
                 }}
-                className={`flex items-center gap-2 px-6 py-3 font-semibold rounded-full transition ${
+                disabled={isGeneratingOutline || !orderedSlides.length}
+                className={`flex items-center gap-2 px-6 py-3 font-semibold rounded-full transition disabled:opacity-50 disabled:cursor-not-allowed ${
                   theme === 'light'
                     ? 'border border-slate-300 text-slate-800 hover:bg-slate-100'
                     : 'border border-slate-600 text-slate-100 hover:bg-slate-900'
@@ -1365,12 +1911,14 @@ function ResultsPageInner() {
               <button
                 type="button"
                 onClick={() => {
+                  if (isGeneratingOutline) return
                   setSelectedSlideIndex(orderedSlides.length)
                   if (typeof window !== 'undefined') {
                     window.scrollTo({ top: 0, behavior: 'smooth' })
                   }
                 }}
-                className="pointer-events-auto inline-flex items-center gap-2 px-6 py-3 rounded-full bg-slate-900 text-slate-50 font-semibold shadow-lg hover:bg-black transition"
+                disabled={isGeneratingOutline || !orderedSlides.length}
+                className="pointer-events-auto inline-flex items-center gap-2 px-6 py-3 rounded-full bg-slate-900 text-slate-50 font-semibold shadow-lg hover:bg-black transition disabled:opacity-50 disabled:cursor-not-allowed"
              >
                 <span>Select Template</span>
               </button>
@@ -1390,7 +1938,7 @@ function ResultsPageInner() {
                     window.scrollTo({ top: 0, behavior: 'smooth' })
                   }
                 }}
-                disabled={isGeneratingPresentation || !orderedSlides.length || !selectedTemplateId}
+                disabled={isGeneratingOutline || isGeneratingPresentation || !orderedSlides.length || !selectedTemplateId}
                 className="pointer-events-auto inline-flex items-center gap-2 px-6 py-3 rounded-full bg-slate-900 text-slate-50 font-semibold shadow-lg hover:bg-black transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isGeneratingPresentation ? 'Generating presentation slides...' : 'Generate Presentation'}

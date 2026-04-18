@@ -80,6 +80,22 @@ A full-stack AI-powered presentation generator built with Next.js, TanStack Quer
 2. Click "Create API Key" 
 3. Copy your API key and paste it in `.env.local`
 
+## OpenRouter Quickstart
+
+This project now includes a small OpenRouter agent CLI for local experimentation.
+
+1. Add your OpenRouter key to `.env.local`:
+   ```bash
+   OPENROUTER_API_KEY=your_openrouter_api_key_here
+   ```
+2. Optionally set `OPENROUTER_MODEL`, `OPENROUTER_HTTP_REFERER`, and `OPENROUTER_APP_TITLE`.
+3. Run the agent:
+   ```bash
+   npm run openrouter:chat
+   ```
+
+The agent uses `openrouter/elephant-alpha` by default and keeps your API key out of the codebase.
+
 ## Project Structure
 
 ```

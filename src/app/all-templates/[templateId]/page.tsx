@@ -46,7 +46,7 @@ export default function TemplateDetailPreview() {
       <header className={`backdrop-blur border-b sticky top-0 z-30 transition-colors ${
         theme === 'light' ? 'bg-white/80 border-slate-200' : 'bg-slate-950/80 border-slate-800'
       }`}>
-        <div className="max-w-5xl mx-auto px-4 py-5">
+        <div className="max-w-7xl mx-auto px-4 py-5">
           <button
             onClick={() => router.back()}
             className={`flex items-center gap-2 text-xs md:text-sm border px-4 py-1.5 rounded-full transition-colors mb-4 ${
@@ -71,8 +71,8 @@ export default function TemplateDetailPreview() {
           </div>
         </div>
       </header>
-  {/* Full Size Layouts List */}
-  <main className="max-w-5xl mx-auto px-4 py-10 space-y-10">
+    {/* Full Size Layouts List */}
+    <main className="max-w-7xl mx-auto px-4 py-10 space-y-10">
         {staticTemplates.map((template: any, index: number) => {
           const LayoutComponent = template.component;
 
@@ -117,14 +117,14 @@ export default function TemplateDetailPreview() {
               </div>
 
               {/* The Full Sized Preview rendered at 1280x720 */}
-              <div className={`p-4 md:p-6 flex justify-center overflow-x-auto ${
+              <div className={`p-6 md:p-10 flex justify-center overflow-x-auto ${
                 theme === 'light' ? 'bg-slate-100' : 'bg-black/40'
               }`}>
                 <div
-                  className={`flex-shrink-0 border ${
+                  className={`relative flex-shrink-0 overflow-hidden border ${
                     theme === 'light' ? 'bg-white border-slate-200 shadow-sm' : 'bg-neutral-900 border-neutral-800 shadow-[0_0_20px_rgba(0,0,0,0.8)]'
                   }`}
-                  style={{ width: "1280px", height: "720px", position: "relative" }}
+                  style={{ width: '1280px', height: '720px' }}
                 >
                   <LayoutComponent data={template.sampleData} />
                 </div>

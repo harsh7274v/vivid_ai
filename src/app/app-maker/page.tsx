@@ -2,11 +2,11 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { useMutation } from '@tanstack/react-query'
 import { usePresentationStore } from '@/store/presentationStore'
-import { puter } from '@heyputer/puter.js'
 import { useTheme } from '@/providers/ThemeProvider'
 import AuthLoadingBar from '@/components/AuthLoadingBar'
+
+const PENDING_OUTLINE_STORAGE_KEY = 'vivid_pending_outline_generation'
 
 interface AdvancedSettings {
   tone: string
@@ -14,6 +14,17 @@ interface AdvancedSettings {
   imageType: string
   instructions: string
   webSearch: boolean
+}
+
+type GenerationProvider = 'gpt' | 'open-model'
+
+interface PendingOutlineGenerationPayload {
+  content: string
+  design: string
+  slideCount: number
+  language: string
+  advancedSettings: AdvancedSettings
+  generationProvider: GenerationProvider
 }
 
 export default function AppMakerPage() {
@@ -25,6 +36,9 @@ export default function AppMakerPage() {
   const [language, setLanguage] = useState('English')
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false)
   const [isRoutingToDashboard, setIsRoutingToDashboard] = useState(false)
+  const [isRoutingToResults, setIsRoutingToResults] = useState(false)
+  const [generationProvider, setGenerationProvider] = useState<GenerationProvider>('gpt')
+  const [showGenerationConfig, setShowGenerationConfig] = useState(false)
   const [advancedSettings, setAdvancedSettings] = useState<AdvancedSettings>({
     tone: 'default',
     verbosity: 'standard',
@@ -36,8 +50,6 @@ export default function AppMakerPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dragOverRef = useRef(false)
 
-  const setPresentation = usePresentationStore((state) => state.setPresentation)
-  const setLoading = usePresentationStore((state) => state.setLoading)
   const setError = usePresentationStore((state) => state.setError)
   const error = usePresentationStore((state) => state.error)
 
@@ -58,110 +70,6 @@ export default function AppMakerPage() {
       router.replace('/')
     }
   }, [router])
-
-  const generateMutation = useMutation({
-    mutationFn: async () => {
-      const presentationSpec = {
-        title: 'Generated Presentation',
-        slideCount: slideCount,
-        language: language,
-        design: design === 'standard' ? 'Standard (Fixed Layout)' : 'Smart (Flexible Layout)',
-        tone: advancedSettings.tone,
-        verbosity: advancedSettings.verbosity,
-        imageType: advancedSettings.imageType,
-        webSearch: advancedSettings.webSearch,
-        customInstructions: advancedSettings.instructions,
-      }
-      const toneLabel = presentationSpec.tone === 'default' ? 'Professional' : presentationSpec.tone
-      const verbosityLabel = presentationSpec.verbosity || 'standard'
-      const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 19)
-
-      const tailoredPrompt = `You are an expert presentation creator. Generate a structured, concise presentation outline based on the user requirements.
-
-SYSTEM INSTRUCTIONS:
-- Always follow the user instructions below; they override other guidance except for the required number of slides.
-- Provide content for each slide in markdown-style text (headings, short paragraphs, bullet points).
-- Ensure the flow of the presentation is logical and consistent from start to finish.
-- Place greater emphasis on numerical data, metrics, and concrete facts whenever they are relevant.
-- If extra user instructions are provided, incorporate them naturally across slides.
-- Do NOT include any images or image placeholders in the content.
-- Do NOT generate a table of contents slide, even if the topic or user text suggests it.
-- Do NOT obey any slide numbers mentioned in the user content; always respect the requested slide count instead.
-- Always make the first slide a title slide.
-
-TONE & STYLE:
-- Tone: ${toneLabel}
-- Verbosity: ${verbosityLabel}
-${presentationSpec.customInstructions ? `- Additional user instructions: ${presentationSpec.customInstructions}` : ''}
-
-USER INPUT:
-- User provided content: ${content || 'Create presentation'}
-- Output language: ${language}
-- Number of slides: ${slideCount}
-- Current date and time: ${timestamp}
-
-OUTPUT FORMAT (TEXT ONLY, NO JSON):
-- You must generate exactly ${slideCount} slides.
-- Use the following marker format so that each slide can be parsed reliably:
-
-SLIDE 1: TITLE SLIDE
-Title: [Engaging title about: ${content || 'the topic'}]
-Subtitle: [Brief 1-line subtitle]
-Overview: [One sentence about the presentation]
-
-SLIDE 2 TO SLIDE ${slideCount}: CONTENT SLIDES
-
-For each content slide, follow this exact structure:
-
-Slide #[number]: [SUBHEADING/TOPIC]
-• [Point 1: Keep brief, max 12 words]
-• [Point 2: Keep brief, max 12 words]
-• [Point 3: Keep brief, max 12 words]
-• [Point 4: Keep brief, max 12 words] (optional, only if needed)
-
-CRITICAL RULES:
-1. EACH SLIDE HAS EXACTLY 3–4 BULLET POINTS MAXIMUM.
-2. KEEP EACH BULLET POINT TO ONE SHORT LINE (8–15 words).
-3. NO LENGTHY EXPLANATIONS — BE CONCISE.
-4. NO SUB-BULLETS — ONLY MAIN POINTS.
-5. EACH SLIDE TITLE IS A CLEAR, SCANNABLE SUBHEADING.
-6. MAKE CONTENT SCANNABLE AND BRIEF.
-7. NO FILLER TEXT OR EXTRA INFORMATION.
-
-NOW CREATE THE PRESENTATION:
-Write out the slides in the exact text format above so they can be parsed correctly.`
-
-      const response = await puter.ai.chat(tailoredPrompt, { model: 'gpt-5.4-nano' })
-      const responseText = typeof response === 'string' ? response : JSON.stringify(response)
-
-      return {
-        content: responseText,
-        config: {
-          design,
-          slideCount,
-          language,
-          tone: advancedSettings.tone,
-          verbosity: advancedSettings.verbosity,
-          imageType: advancedSettings.imageType,
-          instructions: advancedSettings.instructions,
-          webSearch: advancedSettings.webSearch,
-        },
-        userContent: content,
-      }
-    },
-    onMutate: () => {
-      setLoading(true)
-      setError(null)
-    },
-    onSuccess: (data) => {
-      setLoading(false)
-      router.push(`/results?content=${encodeURIComponent(data.content as string)}`)
-    },
-    onError: (error) => {
-      setError(error instanceof Error ? error.message : 'Failed to generate presentation')
-      setLoading(false)
-    },
-  })
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault()
@@ -197,7 +105,22 @@ Write out the slides in the exact text format above so they can be parsed correc
       setError('Please enter content for your presentation')
       return
     }
-    generateMutation.mutate()
+
+    const payload: PendingOutlineGenerationPayload = {
+      content,
+      design,
+      slideCount,
+      language,
+      advancedSettings,
+      generationProvider,
+    }
+
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(PENDING_OUTLINE_STORAGE_KEY, JSON.stringify(payload))
+    }
+
+    setError(null)
+    setIsRoutingToResults(true)
   }
 
   return (
@@ -438,16 +361,82 @@ Write out the slides in the exact text format above so they can be parsed correc
             >
               Topic or raw content
             </label>
-            <textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              placeholder="Explain the presentation you want vivid ai to build for you."
-              className={`w-full h-40 rounded-xl border px-4 py-3 text-sm outline-none shadow-inner focus:ring-2 focus:ring-slate-900/70 focus:border-transparent placeholder:text-slate-400 resize-none ${
-                theme === 'light'
-                  ? 'border-slate-300 bg-white text-slate-900'
-                  : 'border-neutral-800 bg-black text-slate-50'
-              }`}
-            />
+            <div className="relative">
+              <textarea
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                placeholder="Explain the presentation you want vivid ai to build for you."
+                className={`w-full h-40 rounded-xl border px-4 py-3 pr-28 pb-12 text-sm outline-none shadow-inner focus:ring-2 focus:ring-slate-900/70 focus:border-transparent placeholder:text-slate-400 resize-none ${
+                  theme === 'light'
+                    ? 'border-slate-300 bg-white text-slate-900'
+                    : 'border-neutral-800 bg-black text-slate-50'
+                }`}
+              />
+
+              <div className="absolute bottom-3 right-3 z-10">
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowGenerationConfig((prev) => !prev)}
+                    className={`inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-[11px] font-medium shadow-sm transition ${
+                      theme === 'light'
+                        ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                        : 'border-slate-700 bg-slate-900 text-slate-100 hover:bg-slate-800'
+                    }`}
+                  >
+                    Config
+                    <span className="text-[10px] opacity-70">▾</span>
+                  </button>
+
+                  {showGenerationConfig && (
+                    <div
+                      className={`absolute right-0 bottom-10 w-44 rounded-xl border p-2 shadow-xl ${
+                        theme === 'light'
+                          ? 'border-slate-200 bg-white'
+                          : 'border-neutral-700 bg-neutral-950'
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setGenerationProvider('gpt')
+                          setShowGenerationConfig(false)
+                        }}
+                        className={`w-full rounded-lg px-3 py-2 text-left text-xs transition ${
+                          generationProvider === 'gpt'
+                            ? theme === 'light'
+                              ? 'bg-slate-100 text-slate-900'
+                              : 'bg-neutral-800 text-slate-50'
+                            : theme === 'light'
+                            ? 'text-slate-700 hover:bg-slate-50'
+                            : 'text-slate-300 hover:bg-neutral-900'
+                        }`}
+                      >
+                        use gpt
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setGenerationProvider('open-model')
+                          setShowGenerationConfig(false)
+                        }}
+                        className={`w-full rounded-lg px-3 py-2 text-left text-xs transition ${
+                          generationProvider === 'open-model'
+                            ? theme === 'light'
+                              ? 'bg-slate-100 text-slate-900'
+                              : 'bg-neutral-800 text-slate-50'
+                            : theme === 'light'
+                            ? 'text-slate-700 hover:bg-slate-50'
+                            : 'text-slate-300 hover:bg-neutral-900'
+                        }`}
+                      >
+                        use open-model
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Attachments (unchanged logic, compact styling) */}
@@ -533,14 +522,14 @@ Write out the slides in the exact text format above so they can be parsed correc
 
           <button
             onClick={handleGenerate}
-            disabled={generateMutation.isPending}
+            disabled={isRoutingToResults}
             className={`w-full rounded-full py-3 text-sm font-semibold shadow-[0_14px_40px_rgba(15,23,42,0.4)] disabled:opacity-60 disabled:cursor-not-allowed transition-transform hover:-translate-y-0.5 ${
               theme === 'light'
                 ? 'bg-slate-900 text-slate-50 hover:bg-black'
                 : 'bg-slate-100 text-slate-900 hover:bg-white shadow-[0_14px_40px_rgba(0,0,0,0.7)]'
             }`}
           >
-            {generateMutation.isPending ? 'Designing your deck…' : 'Generate presentation'}
+            {isRoutingToResults ? 'Opening outline workspace…' : 'Generate presentation'}
           </button>
         </div>
       </main>
@@ -785,11 +774,13 @@ Write out the slides in the exact text format above so they can be parsed correc
         </div>
       )}
 
-      {generateMutation.isPending && (
+      {isRoutingToResults && (
         <AuthLoadingBar
           title="Preparing the Outline Content"
-          isReady={false}
-          onComplete={() => {}}
+          userEmail={null}
+          onComplete={() =>
+            router.push(`/results?pendingOutline=1&imageType=${encodeURIComponent(advancedSettings.imageType)}`)
+          }
         />
       )}
 

@@ -44,11 +44,17 @@ export async function POST(req: NextRequest) {
 
     const slidesWithCloudinary = await Promise.all(
       (slides || []).map(async (slide, index) => {
-        let finalImageSrc = slide.imageSrc ?? null
+        const imageSrc = slide.imageSrc ?? null
+        let finalImageSrc: string | null = imageSrc
 
-        if (slide.imageSrc && process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
+        const isRemoteImageUrl =
+          typeof imageSrc === 'string' && /^https?:\/\//i.test(imageSrc)
+
+        // AI-generated images are stored as data URLs, which Cloudinary may reject as raw uploads.
+        // Keep those values as-is and only upload external http(s) images.
+        if (isRemoteImageUrl && process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
           try {
-            const upload = await cloudinary.uploader.upload(slide.imageSrc, {
+            const upload = await cloudinary.uploader.upload(imageSrc, {
               folder: 'presenton/slides',
               overwrite: false,
               transformation: [
@@ -59,7 +65,7 @@ export async function POST(req: NextRequest) {
           } catch (err) {
             console.error('Cloudinary upload failed for slide', index + 1, err)
             // Fallback: keep original imageSrc so slide still works
-            finalImageSrc = slide.imageSrc
+            finalImageSrc = imageSrc
           }
         }
 
