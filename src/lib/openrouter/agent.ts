@@ -100,9 +100,11 @@ export class OpenRouterAgent extends EventEmitter {
 
     try {
       const result = await this.client.chat.send({
-        model: this.model,
-        messages: this.buildMessages(),
-        stream: true,
+        chatRequest: {
+          model: this.model,
+          messages: this.buildMessages(),
+          stream: true,
+        },
       })
 
       this.emit('stream:start')
@@ -144,9 +146,11 @@ export class OpenRouterAgent extends EventEmitter {
 
     try {
       const result = await this.client.chat.send({
-        model: this.model,
-        messages: this.buildMessages(),
-        stream: false,
+        chatRequest: {
+          model: this.model,
+          messages: this.buildMessages(),
+          stream: false,
+        },
       }) as {
         choices?: Array<{ message?: { content?: unknown } }>
       }
