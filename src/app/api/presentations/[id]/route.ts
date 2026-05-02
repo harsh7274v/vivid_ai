@@ -54,6 +54,8 @@ export async function GET(
         title: slide.title,
         content: contentLines,
         imageSrc,
+        layoutData: parsedStyle && typeof parsedStyle === 'object' ? parsedStyle.layoutData || null : null,
+        layoutIndex: parsedStyle && typeof parsedStyle === 'object' && typeof parsedStyle.layoutIndex === 'number' ? parsedStyle.layoutIndex : null,
       }
     })
 

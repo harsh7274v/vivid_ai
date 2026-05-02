@@ -23,7 +23,7 @@ function extractText(content: unknown): string {
       .join('')
   }
 
-  return content == null ? '' : String(content)
+  return content == null ? '' : (typeof content === 'object' ? JSON.stringify(content) : String(content))
 }
 
 export async function POST(req: NextRequest) {
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
         'X-OpenRouter-Title': process.env.OPENROUTER_APP_TITLE || 'Presenton',
       },
       body: JSON.stringify({
-        model: body.model || process.env.OPENROUTER_MODEL || 'openrouter/elephant-alpha',
+        model: body.model || process.env.OPENROUTER_MODEL,
         messages: [
           ...(body.systemPrompt
             ? [{ role: 'system' as const, content: body.systemPrompt }]

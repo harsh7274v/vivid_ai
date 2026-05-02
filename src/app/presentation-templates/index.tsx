@@ -226,23 +226,31 @@ export const neoGeneralTemplates: TemplateWithData[] = [
 ]
 
 export const neoStandardTemplates: TemplateWithData[] = [
-    createTemplateEntry(TitleBadgeChartLayout, TitleBadgeChartSchema, TitleBadgeChartId, TitleBadgeChartName, TitleBadgeChartDesc, "neo-standard", "TitleBadgeChartLayout"),
-    createTemplateEntry(TitleDescriptionBulletListStandardLayout, TitleDescriptionBulletListStandardSchema, TitleDescriptionBulletListStandardId, TitleDescriptionBulletListStandardName, TitleDescriptionBulletListStandardDesc, "neo-standard", "TitleDescriptionBulletList"),
-    createTemplateEntry(TitleDescriptionContactCardsLayout, TitleDescriptionContactCardsSchema, TitleDescriptionContactCardsId, TitleDescriptionContactCardsName, TitleDescriptionContactCardsDesc, "neo-standard", "TitleDescriptionContactCardsLayout"),
-    createTemplateEntry(TitleDescriptionIconListLayout, TitleDescriptionIconListSchema, TitleDescriptionIconListId, TitleDescriptionIconListName, TitleDescriptionIconListDesc, "neo-standard", "TitleDescriptionIconListLayout"),
+    // 1. Intro / Hero
     createTemplateEntry(TitleDescriptionImageRightLayout, TitleDescriptionImageRightSchema, TitleDescriptionImageRightId, TitleDescriptionImageRightName, TitleDescriptionImageRightDesc, "neo-standard", "TitleDescriptionImageRightLayout"),
-    createTemplateEntry(TitleDescriptionRadialCardsLayout, TitleDescriptionRadialCardsSchema, TitleDescriptionRadialCardsId, TitleDescriptionRadialCardsName, TitleDescriptionRadialCardsDesc, "neo-standard", "TitleDescriptionRadialCardsLayout"),
-    createTemplateEntry(TitleDescriptionTableLayout, TitleDescriptionTableSchema, TitleDescriptionTableId, TitleDescriptionTableName, TitleDescriptionTableDesc, "neo-standard", "TitleDescriptionTableLayout"),
-    createTemplateEntry(TitleDescriptionTimelineLayout, TitleDescriptionTimelineSchema, TitleDescriptionTimelineId, TitleDescriptionTimelineName, TitleDescriptionTimelineDesc, "neo-standard", "TitleDescriptionTimelineLayout"),
-    createTemplateEntry(TitleDualChartsComparisonLayout, TitleDualChartsComparisonSchema, TitleDualChartsComparisonId, TitleDualChartsComparisonName, TitleDualChartsComparisonDesc, "neo-standard", "TitleDualChartsComparisonLayout"),
-    createTemplateEntry(TitleDualComparisonCardsLayout, TitleDualComparisonCardsSchema, TitleDualComparisonCardsId, TitleDualComparisonCardsName, TitleDualComparisonCardsDesc, "neo-standard", "TitleDualComparisonCardsLayout"),
+    // 2. Basic Info / Bullets
+    createTemplateEntry(TitleDescriptionBulletListStandardLayout, TitleDescriptionBulletListStandardSchema, TitleDescriptionBulletListStandardId, TitleDescriptionBulletListStandardName, TitleDescriptionBulletListStandardDesc, "neo-standard", "TitleDescriptionBulletList"),
+    createTemplateEntry(TitleDescriptionIconListLayout, TitleDescriptionIconListSchema, TitleDescriptionIconListId, TitleDescriptionIconListName, TitleDescriptionIconListDesc, "neo-standard", "TitleDescriptionIconListLayout"),
+    // 3. Metrics / High-level Numbers
     createTemplateEntry(TitleKpiGridLayout, TitleKpiGridSchema, TitleKpiGridId, TitleKpiGridName, TitleKpiGridDesc, "neo-standard", "TitleKpiGridLayout"),
-    createTemplateEntry(TitleMetricsChartLayout, TitleMetricsChartSchema, TitleMetricsChartId, TitleMetricsChartName, TitleMetricsChartDesc, "neo-standard", "TitleMetricsChartLayout"),
     createTemplateEntry(TitleMetricsImageLayout, TitleMetricsImageSchema, TitleMetricsImageId, TitleMetricsImageName, TitleMetricsImageDesc, "neo-standard", "TitleMetricsImageLayout"),
+    createTemplateEntry(TitleDescriptionRadialCardsLayout, TitleDescriptionRadialCardsSchema, TitleDescriptionRadialCardsId, TitleDescriptionRadialCardsName, TitleDescriptionRadialCardsDesc, "neo-standard", "TitleDescriptionRadialCardsLayout"),
+    // 4. Timeline / Process
+    createTemplateEntry(TitleDescriptionTimelineLayout, TitleDescriptionTimelineSchema, TitleDescriptionTimelineId, TitleDescriptionTimelineName, TitleDescriptionTimelineDesc, "neo-standard", "TitleDescriptionTimelineLayout"),
+    // 5. Data & Charts
+    createTemplateEntry(TitleBadgeChartLayout, TitleBadgeChartSchema, TitleBadgeChartId, TitleBadgeChartName, TitleBadgeChartDesc, "neo-standard", "TitleBadgeChartLayout"),
+    createTemplateEntry(TitleMetricsChartLayout, TitleMetricsChartSchema, TitleMetricsChartId, TitleMetricsChartName, TitleMetricsChartDesc, "neo-standard", "TitleMetricsChartLayout"),
     createTemplateEntry(TitlePointsDonutGridLayout, TitlePointsDonutGridSchema, TitlePointsDonutGridId, TitlePointsDonutGridName, TitlePointsDonutGridDesc, "neo-standard", "TitlePointsDonutGridLayout"),
     createTemplateEntry(TitleDescriptionMultiChartGridStandardLayout, TitleDescriptionMultiChartGridStandardSchema, TitleDescriptionMultiChartGridStandardId, TitleDescriptionMultiChartGridStandardName, TitleDescriptionMultiChartGridStandardDesc, "neo-standard", "TitleDescriptionMultiChartGrid"),
     createTemplateEntry(TitleDescriptionMultiChartGridWithMetricsStandardLayout, TitleDescriptionMultiChartGridWithMetricsStandardSchema, TitleDescriptionMultiChartGridWithMetricsStandardId, TitleDescriptionMultiChartGridWithMetricsStandardName, TitleDescriptionMultiChartGridWithMetricsStandardDesc, "neo-standard", "TitleDescriptionMultiChartGridWithMetrics"),
     createTemplateEntry(TitleDescriptionMultiChartGridWithBulletsStandardLayout, TitleDescriptionMultiChartGridWithBulletsStandardSchema, TitleDescriptionMultiChartGridWithBulletsStandardId, TitleDescriptionMultiChartGridWithBulletsStandardName, TitleDescriptionMultiChartGridWithBulletsStandardDesc, "neo-standard", "TitleDescriptionMultiChartGridWithBullets"),
+    // 6. Comparisons
+    createTemplateEntry(TitleDualChartsComparisonLayout, TitleDualChartsComparisonSchema, TitleDualChartsComparisonId, TitleDualChartsComparisonName, TitleDualChartsComparisonDesc, "neo-standard", "TitleDualChartsComparisonLayout"),
+    createTemplateEntry(TitleDualComparisonCardsLayout, TitleDualComparisonCardsSchema, TitleDualComparisonCardsId, TitleDualComparisonCardsName, TitleDualComparisonCardsDesc, "neo-standard", "TitleDualComparisonCardsLayout"),
+    // 7. Details / Table
+    createTemplateEntry(TitleDescriptionTableLayout, TitleDescriptionTableSchema, TitleDescriptionTableId, TitleDescriptionTableName, TitleDescriptionTableDesc, "neo-standard", "TitleDescriptionTableLayout"),
+    // 8. Outro / Contact
+    createTemplateEntry(TitleDescriptionContactCardsLayout, TitleDescriptionContactCardsSchema, TitleDescriptionContactCardsId, TitleDescriptionContactCardsName, TitleDescriptionContactCardsDesc, "neo-standard", "TitleDescriptionContactCardsLayout"),
 ]
 export const neoModernTemplates: TemplateWithData[] = [
     createTemplateEntry(TitleDescriptionBulletListModernLayout, TitleDescriptionBulletListModernSchema, TitleDescriptionBulletListModernId, TitleDescriptionBulletListModernName, TitleDescriptionBulletListModernDesc, "neo-modern", "TitleDescriptionBulletList"),

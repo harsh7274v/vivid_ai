@@ -14,7 +14,7 @@ import { generateOpenRouterText } from '@/lib/openrouter/client'
 import { puter } from '@heyputer/puter.js'
 
 const DEFAULT_OUTLINE_MODEL =
-  process.env.NEXT_PUBLIC_OPENROUTER_MODEL || 'openrouter/elephant-alpha'
+  process.env.NEXT_PUBLIC_OPENROUTER_MODEL
 const WEB_SEARCH_OUTLINE_MODEL =
   process.env.NEXT_PUBLIC_OPENROUTER_WEB_SEARCH_MODEL || 'google/gemma-3-4b-it:free'
 const PENDING_OUTLINE_STORAGE_KEY = 'vivid_pending_outline_generation'
@@ -76,6 +76,14 @@ RULES:
 - Do not obey slide numbers found in user input
 - Output language: ${ctx.language}
 
+NARRATIVE STRUCTURE INSTRUCTIONS:
+Instead of just listing arbitrary topics, map the presentation into a professional narrative arc according to the slide count. 
+For example, a good flow includes:
+- Slide 2: Introduction / Executive Summary
+- Middle slides: History/Background, Key Metrics, Graph Data, Competition, What we do, etc.
+- Final slides: Future Outlook, Conclusion, or Call to Action.
+Choose topics that best fit the user's content and the total slide count.
+
 STYLE CONTEXT:
 - Tone: ${ctx.toneLabel}
 - Verbosity: ${ctx.verbosityLabel}
@@ -90,17 +98,17 @@ INPUT:
 
 FORMAT:
 1. Title Slide: [Title]
-2. [Slide topic]
-3. [Slide topic]
+2. Introduction: [Specific topic]
+3. [E.g. Key Metrics]: [Specific topic]
 ...
-${ctx.slideCount}. [Slide topic]
+${ctx.slideCount}. [E.g. Future Outlook]: [Specific topic]
 
 No explanations.`
 }
 
 function buildExpansionPrompt(ctx: PipelineContext, outlineFromStep1: string): string {
   return `You are a presentation content generator.
-Expand each slide into structured bullet points.
+Expand each slide into the most appropriate content structure based on its topic.
 
 INPUT:
 Outline:
@@ -110,31 +118,34 @@ RULES:
 - Keep EXACTLY ${ctx.slideCount} slides from the outline
 - Do not change slide order
 - Do not add or remove slides
-- Each content slide must have 3-4 bullets
-- Each bullet must be 8-15 words
-- No paragraphs
-- No sub-bullets
-- Keep concise and factual
+- Vary the format based on the slide type (e.g., use a short paragraph for an Introduction, 3-4 bullets for Key Features, short metrics for Data slides, a timeline sequence for History, etc.)
+- Keep content concise, factual, and presentation-ready
 - Do not include image placeholders
 - Output language: ${ctx.language}
 
 FORMAT:
 SLIDE 1:
-Title: [Title]
-Subtitle: [Subtitle]
-Overview: [One sentence]
+Title: Your Presentation Title
+Subtitle: Your Subtitle
+Overview: A one-sentence overview of the presentation.
 
 SLIDE 2:
-Slide Title: [Title]
-• [Bullet]
-• [Bullet]
-• [Bullet]
+Slide Title: Introduction
+Our company has been innovating since 2010.
+We focus on sustainable technology.
+
+SLIDE 3:
+Slide Title: Key Metrics
+• 500k Active Users
+• $2M Annual Revenue
 
 ...
 
 STRICT:
 - Use headers exactly like "SLIDE n:" for every slide
-- For slides 2 to ${ctx.slideCount}, use only bullet lines after Slide Title
+- For slides 2 to ${ctx.slideCount}, output the slide title as "Slide Title: [Title]" followed by the actual generated content
+- Do not just write placeholders like "[Content]". You MUST write the actual real content for the slide.
+- YOU MUST GENERATE AT LEAST 2 TO 5 LINES OF REAL CONTENT FOR EVERY SINGLE SLIDE. NO EMPTY SLIDES ARE ALLOWED.
 - Do not output any text before or after slides`
 }
 
@@ -152,10 +163,7 @@ CHECK:
 - Correct number of slides: ${slideCount}
 - Every slide header is exactly "SLIDE n:"
 - Slide 1 includes Title, Subtitle, and Overview
-- Slides 2-${slideCount} each have 3-4 bullets
-- Every bullet is 8-15 words and never more than 15 words
-- No paragraphs
-- No sub-bullets
+- Slides 2-${slideCount} include a "Slide Title:" line followed by appropriate content
 - No extra text outside the slide blocks
 
 If anything is wrong, fix it.
@@ -163,15 +171,14 @@ If anything is wrong, fix it.
 OUTPUT:
 Return ONLY corrected presentation in this format:
 SLIDE 1:
-Title: ...
-Subtitle: ...
-Overview: ...
+Title: Actual Title
+Subtitle: Actual Subtitle
+Overview: Actual Overview
 
 SLIDE 2:
-Slide Title: ...
-• ...
-• ...
-• ...`
+Slide Title: Actual Slide Title
+Actual content line 1
+Actual content line 2`
 }
 
 function validatePipelineOutput(content: string, slideCount: number): { isValid: boolean; issues: string[] } {
@@ -213,18 +220,10 @@ function validatePipelineOutput(content: string, slideCount: number): { isValid:
         issues.push(`Slide ${slideNumber} is missing Slide Title.`)
       }
 
-      const bulletLines = (block.match(/^\s*•\s+.+$/gim) || []).map((line) => line.trim())
-      if (bulletLines.length < 3 || bulletLines.length > 4) {
-        issues.push(`Slide ${slideNumber} has ${bulletLines.length} bullets; expected 3-4.`)
-      }
-
-      for (const bullet of bulletLines) {
-        const text = bullet.replace(/^•\s+/, '').trim()
-        const words = text.split(/\s+/).filter(Boolean)
-        if (words.length < 8 || words.length > 15) {
-          issues.push(`Slide ${slideNumber} has bullet with ${words.length} words; expected 8-15.`)
-          break
-        }
+      const lines = block.split('\n').map(l => l.trim()).filter(Boolean)
+      const titleIndex = lines.findIndex(l => /^\s*Slide Title:\s*.+/i.test(l))
+      if (titleIndex === -1 || titleIndex === lines.length - 1) {
+        issues.push(`Slide ${slideNumber} is missing actual content below the title. You must write at least 2 lines of real content.`)
       }
     }
   }
@@ -257,24 +256,21 @@ function AllTemplatesGrid() {
 
   return (
     <div
-      className={`rounded-2xl border p-6 md:p-8 transition-colors duration-200 ${
-        theme === 'light'
+      className={`rounded-2xl border p-6 md:p-8 transition-colors duration-200 ${theme === 'light'
           ? 'bg-white border-slate-200 shadow-sm'
           : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 border-neutral-800 shadow-[0_18px_60px_rgba(0,0,0,1)]'
-      }`}
+        }`}
     >
       <div className="text-center mb-8">
         <h2
-          className={`text-2xl font-semibold ${
-            theme === 'light' ? 'text-slate-900' : 'text-slate-50'
-          }`}
+          className={`text-2xl font-semibold ${theme === 'light' ? 'text-slate-900' : 'text-slate-50'
+            }`}
         >
           All Templates
         </h2>
         <p
-          className={`mt-2 text-sm ${
-            theme === 'light' ? 'text-slate-500' : 'text-slate-100'
-          }`}
+          className={`mt-2 text-sm ${theme === 'light' ? 'text-slate-500' : 'text-slate-100'
+            }`}
         >
           {totalStaticLayouts} layouts across {templates.length} templates
         </p>
@@ -288,15 +284,14 @@ function AllTemplatesGrid() {
             return (
               <div
                 key={template.id}
-                className={`border rounded-lg cursor-pointer transition-all duration-200 group overflow-hidden ${
-                  selectedTemplateId === template.id
+                className={`border rounded-lg cursor-pointer transition-all duration-200 group overflow-hidden ${selectedTemplateId === template.id
                     ? theme === 'light'
                       ? 'bg-white border-slate-900 ring-2 ring-slate-300 shadow-lg'
                       : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 border-neutral-400 ring-2 ring-neutral-600/80 shadow-[0_18px_60px_rgba(0,0,0,1)]'
                     : theme === 'light'
-                    ? 'bg-white border-slate-200 hover:shadow-md'
-                    : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 border-neutral-800 hover:shadow-md'
-                }`}
+                      ? 'bg-white border-slate-200 hover:shadow-md'
+                      : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 border-neutral-800 hover:shadow-md'
+                  }`}
                 onClick={() => {
                   setSelectedTemplateId(template.id)
                 }}
@@ -304,9 +299,8 @@ function AllTemplatesGrid() {
                 <div className="p-5">
                   <div className="flex items-center justify-between mb-2">
                     <h3
-                      className={`text-xl font-semibold capitalize truncate pr-2 ${
-                        theme === 'light' ? 'text-slate-900' : 'text-slate-50'
-                      }`}
+                      className={`text-xl font-semibold capitalize truncate pr-2 ${theme === 'light' ? 'text-slate-900' : 'text-slate-50'
+                        }`}
                     >
                       {template.name}
                     </h3>
@@ -329,9 +323,8 @@ function AllTemplatesGrid() {
                   </div>
 
                   <p
-                    className={`text-sm mb-4 line-clamp-2 h-10 ${
-                      theme === 'light' ? 'text-slate-500' : 'text-slate-300'
-                    }`}
+                    className={`text-sm mb-4 line-clamp-2 h-10 ${theme === 'light' ? 'text-slate-500' : 'text-slate-300'
+                      }`}
                   >
                     {template.description}
                   </p>
@@ -534,7 +527,8 @@ function parseContent(rawContent: string): Slide[] {
             const lower = line.toLowerCase()
             return (
               !lower.includes('content point') &&
-              !lower.startsWith('slide ') &&
+              !lower.startsWith('slide title:') &&
+              !/^slide\s+#?\d+:?$/.test(lower) &&
               lower !== 'title slide' &&
               lower !== 'content to be added'
             )
@@ -661,6 +655,7 @@ function ResultsPageInner() {
   const [existingError, setExistingError] = useState<string | null>(null)
   const [showLoadingBar, setShowLoadingBar] = useState(true)
   const selectedTemplateId = usePresentationStore((state) => state.selectedTemplateId)
+  const setSelectedTemplateId = usePresentationStore((state) => state.setSelectedTemplateId)
   const selectedTemplateGroup = useMemo(
     () => templates.find((t) => t.id === selectedTemplateId),
     [selectedTemplateId]
@@ -756,9 +751,18 @@ function ResultsPageInner() {
       const callGenerationModel = async (prompt: string): Promise<string> => {
         if (payload.generationProvider === 'gpt') {
           const puterResponse: any = await puter.ai.chat(prompt)
-          return typeof puterResponse === 'string'
-            ? puterResponse
-            : String(puterResponse?.message?.content ?? puterResponse?.text ?? puterResponse)
+          if (typeof puterResponse === 'string') return puterResponse
+          
+          const content = puterResponse?.message?.content ?? puterResponse?.text
+          if (content) {
+            return typeof content === 'object' ? JSON.stringify(content) : String(content)
+          }
+          
+          if (puterResponse && typeof puterResponse === 'object') {
+            return JSON.stringify(puterResponse)
+          }
+          
+          return String(puterResponse)
         }
 
         try {
@@ -847,25 +851,38 @@ Apply all fixes now and return only corrected slides.`
         }
 
         const data: {
+          design?: string
           slides?: {
             title: string
             content: string[]
             imageSrc?: string | null
+            layoutData?: any
+            layoutIndex?: number | null
           }[]
         } = await res.json()
 
+        const restoredLayoutIndices: number[] = []
+
         const loadedSlides: GeneratedPresentationSlide[] = (data.slides || []).map(
-          (s, index) => ({
-            number: index + 1,
-            title: s.title,
-            content: Array.isArray(s.content) && s.content.length > 0 ? s.content : [''],
-            imageSrc: s.imageSrc ?? null,
-          })
+          (s, index) => {
+            if (typeof s.layoutIndex === 'number') {
+              restoredLayoutIndices[index] = s.layoutIndex
+            }
+            return {
+              number: index + 1,
+              title: s.title,
+              content: Array.isArray(s.content) && s.content.length > 0 ? s.content : [''],
+              imageSrc: s.imageSrc ?? null,
+              layoutData: s.layoutData,
+            }
+          }
         )
 
         if (!isCancelled) {
           // In edit mode, we go straight to the presentation editor.
           // Use loaded slides as generatedSlides and skip outline/template steps.
+          if (data.design) setSelectedTemplateId(data.design)
+          setLayoutIndices(restoredLayoutIndices)
           setGeneratedSlides(loadedSlides)
           setOrderedSlides([])
           setActiveGeneratedSlideIndex(0)
@@ -889,24 +906,24 @@ Apply all fixes now and return only corrected slides.`
 
   // Reset layout mapping when source slides or template changes
   useEffect(() => {
-    setLayoutIndices([])
-  }, [orderedSlides.length, selectedTemplateId])
+    if (!presentationId) {
+      setLayoutIndices([])
+    }
+  }, [orderedSlides.length, selectedTemplateId, presentationId])
 
   if (!outlineContent && !presentationId && !pendingOutline) {
     return (
       <div
-        className={`min-h-screen ${
-          theme === 'light'
+        className={`min-h-screen ${theme === 'light'
             ? 'bg-slate-50 text-slate-900'
             : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 text-slate-50'
-        }`}
+          }`}
       >
         <main className="max-w-5xl mx-auto px-4 py-12">
           <div className="text-center">
             <p
-              className={`mb-6 ${
-                theme === 'light' ? 'text-slate-500' : 'text-slate-300'
-              }`}
+              className={`mb-6 ${theme === 'light' ? 'text-slate-500' : 'text-slate-300'
+                }`}
             >
               No content available
             </p>
@@ -937,11 +954,10 @@ Apply all fixes now and return only corrected slides.`
   if (presentationId && existingError) {
     return (
       <div
-        className={`min-h-screen ${
-          theme === 'light'
+        className={`min-h-screen ${theme === 'light'
             ? 'bg-slate-50 text-slate-900'
             : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 text-slate-50'
-        }`}
+          }`}
       >
         <main className="max-w-5xl mx-auto px-4 py-12">
           <div className="text-center space-y-4">
@@ -988,7 +1004,7 @@ Apply all fixes now and return only corrected slides.`
 
       const responseText = await generateOpenRouterText({
         prompt,
-        model: 'openrouter/elephant-alpha',
+        model: DEFAULT_OUTLINE_MODEL,
       })
 
       let parsed: any
@@ -1070,7 +1086,7 @@ Apply all fixes now and return only corrected slides.`
 
       const responseText = await generateOpenRouterText({
         prompt,
-        model: 'openrouter/elephant-alpha',
+        model: DEFAULT_OUTLINE_MODEL,
       })
 
       let parsed: any
@@ -1150,7 +1166,7 @@ Apply all fixes now and return only corrected slides.`
 
       const responseText = await generateOpenRouterText({
         prompt,
-        model: 'openrouter/elephant-alpha',
+        model: DEFAULT_OUTLINE_MODEL,
       })
 
       let parsed: any
@@ -1180,18 +1196,18 @@ Apply all fixes now and return only corrected slides.`
 
     setIsGeneratingPresentation(true)
     try {
-      const isNeoGeneral = selectedTemplateGroup?.id === 'neo-general'
+      const isAiMappedGroup = ['neo-general', 'neo-standard'].includes(selectedTemplateGroup?.id || '')
 
-      let neoGeneralLayoutIndices: number[] | null = null
-      if (isNeoGeneral && selectedTemplateGroup?.layouts?.length) {
+      let aiLayoutIndices: number[] | null = null
+      if (isAiMappedGroup && selectedTemplateGroup?.layouts?.length) {
         try {
-          neoGeneralLayoutIndices = await determineNeoGeneralLayoutIndices(
+          aiLayoutIndices = await determineNeoGeneralLayoutIndices(
             orderedSlides,
             selectedTemplateGroup.layouts
           )
         } catch (error) {
           console.error('AI layout selection failed, falling back to rotation', error)
-          neoGeneralLayoutIndices = null
+          aiLayoutIndices = null
         }
       }
 
@@ -1278,11 +1294,11 @@ Apply all fixes now and return only corrected slides.`
                 null
             }
 
-            // For neo-general templates, keep the original outline points
+            // For templates configured for AI mapping, keep the original outline points
             // so they can be rendered as bullets in the slide layouts,
             // while still allowing an optimized title and optional
             // layout-specific AI-filled data.
-            if (isNeoGeneral) {
+            if (isAiMappedGroup) {
               let optimized: { title: string; description: string } | null = null
               try {
                 optimized = await optimizeSlideForTemplate(slide)
@@ -1294,8 +1310,8 @@ Apply all fixes now and return only corrected slides.`
               const layouts = selectedTemplateGroup?.layouts || []
               if (layouts.length) {
                 const fallbackIndex = index % layouts.length
-                const rawIndex = neoGeneralLayoutIndices && typeof neoGeneralLayoutIndices[index] === 'number'
-                  ? (neoGeneralLayoutIndices[index] as number)
+                const rawIndex = aiLayoutIndices && typeof aiLayoutIndices[index] === 'number'
+                  ? (aiLayoutIndices[index] as number)
                   : fallbackIndex
                 const safeIndex = rawIndex >= 0 && rawIndex < layouts.length ? rawIndex : fallbackIndex
                 const layout = layouts[safeIndex]
@@ -1319,7 +1335,7 @@ Apply all fixes now and return only corrected slides.`
               return {
                 ...slide,
                 title: optimized?.title || slide.title,
-                // Preserve full outline points for neo-general
+                // Preserve full outline points for AI-mapped templates
                 content: slide.content,
                 imageSrc: imageUrl,
                 layoutData: layoutData || undefined,
@@ -1387,10 +1403,13 @@ Apply all fixes now and return only corrected slides.`
                 userEmail: email,
                 title,
                 description,
-                slides: generated.map((g) => ({
+                design: selectedTemplateId,
+                slides: generated.map((g, idx) => ({
                   title: g.title,
                   content: g.content,
                   imageSrc: g.imageSrc,
+                  layoutData: g.layoutData,
+                  layoutIndex: isAiMappedGroup && aiLayoutIndices && typeof aiLayoutIndices[idx] === 'number' ? aiLayoutIndices[idx] : undefined,
                 })),
               }),
             })
@@ -1403,8 +1422,8 @@ Apply all fixes now and return only corrected slides.`
       setGeneratedSlides(generated)
       setActiveGeneratedSlideIndex(0)
 
-      // Store AI-selected layout indices (currently for neo-general only)
-        setLayoutIndices(isNeoGeneral && neoGeneralLayoutIndices ? neoGeneralLayoutIndices : [])
+      // Store AI-selected layout indices
+      setLayoutIndices(isAiMappedGroup && aiLayoutIndices ? aiLayoutIndices : [])
 
       // After slides are generated, switch to the Presentation view
       setSelectedSlideIndex(orderedSlides.length + 1)
@@ -1543,11 +1562,10 @@ Apply all fixes now and return only corrected slides.`
 
   return (
     <div
-      className={`min-h-screen ${
-        theme === 'light'
+      className={`min-h-screen ${theme === 'light'
           ? 'bg-slate-50 text-slate-900'
           : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 text-slate-50'
-      }`}
+        }`}
     >
       {/* Main Content */}
       <main className="max-w-5xl mx-auto px-4 py-10">
@@ -1570,11 +1588,10 @@ Apply all fixes now and return only corrected slides.`
                 router.push('/app-maker')
               }
             }}
-            className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full border transition text-sm ${
-              theme === 'light'
+            className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full border transition text-sm ${theme === 'light'
                 ? 'border-slate-200 text-slate-700 hover:bg-slate-100'
                 : 'border-slate-600 text-slate-100 hover:bg-slate-900'
-            }`}
+              }`}
           >
             <svg
               className="w-4 h-4"
@@ -1595,20 +1612,18 @@ Apply all fixes now and return only corrected slides.`
 
         {/* Section label */}
         <div
-          className={`mb-8 border-b ${
-            theme === 'light' ? 'border-slate-200' : 'border-slate-700'
-          }`}
+          className={`mb-8 border-b ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'
+            }`}
         >
           <p
-            className={`pb-4 px-1 text-sm font-medium ${
-              theme === 'light' ? 'text-slate-500' : 'text-slate-300'
-            }`}
+            className={`pb-4 px-1 text-sm font-medium ${theme === 'light' ? 'text-slate-500' : 'text-slate-300'
+              }`}
           >
             {isOutlineTab
               ? 'Outline & Content'
               : selectedSlideIndex === orderedSlides.length
-              ? 'Select Template'
-              : 'Presentation'}
+                ? 'Select Template'
+                : 'Presentation'}
           </p>
         </div>
 
@@ -1626,34 +1641,29 @@ Apply all fixes now and return only corrected slides.`
                 ? orderedSlides.map((slide, index) => (
                   <div key={index} className="flex items-stretch gap-3 animate-pulse">
                     <div
-                      className={`mt-6 h-9 w-7 rounded-full ${
-                        theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'
-                      }`}
+                      className={`mt-6 h-9 w-7 rounded-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'
+                        }`}
                     />
                     <div
-                      className={`flex-1 rounded-3xl overflow-hidden p-7 border ${
-                        theme === 'light'
+                      className={`flex-1 rounded-3xl overflow-hidden p-7 border ${theme === 'light'
                           ? 'bg-white/80 border-slate-200/70'
                           : 'bg-neutral-900/80 border-neutral-700/70'
-                      }`}
+                        }`}
                     >
                       <div className="space-y-6">
                         <div className="flex items-start gap-4">
                           <div
-                            className={`flex-shrink-0 w-11 h-11 rounded-2xl ${
-                              theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'
-                            }`}
+                            className={`flex-shrink-0 w-11 h-11 rounded-2xl ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'
+                              }`}
                           />
                           <div className="flex-1 space-y-3">
                             <div
-                              className={`h-6 w-2/3 rounded ${
-                                theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'
-                              }`}
+                              className={`h-6 w-2/3 rounded ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'
+                                }`}
                             />
                             <div
-                              className={`h-1 w-10 rounded-full ${
-                                theme === 'light' ? 'bg-slate-300' : 'bg-slate-600'
-                              }`}
+                              className={`h-1 w-10 rounded-full ${theme === 'light' ? 'bg-slate-300' : 'bg-slate-600'
+                                }`}
                             />
                           </div>
                         </div>
@@ -1661,9 +1671,8 @@ Apply all fixes now and return only corrected slides.`
                           {slide.content.map((_, bulletIdx) => (
                             <div
                               key={bulletIdx}
-                              className={`h-9 rounded-lg ${
-                                theme === 'light' ? 'bg-slate-100' : 'bg-slate-800'
-                              }`}
+                              className={`h-9 rounded-lg ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-800'
+                                }`}
                             />
                           ))}
                         </div>
@@ -1672,191 +1681,186 @@ Apply all fixes now and return only corrected slides.`
                   </div>
                 ))
                 : orderedSlides.map((slide, index) => (
-                <div
-                  key={index}
-                  className="flex items-stretch gap-3"
-                  onDragOver={handleDragOver}
-                  onDrop={(event) => handleDrop(event, index)}
-                >
-                  {/* Drag handle */}
                   <div
-                    draggable
-                    onDragStart={(event) => handleDragStart(event, index)}
-                    onDragEnd={handleDragEnd}
-                    className={`mt-6 flex h-9 w-7 items-center justify-center rounded-full border border-slate-200/70 bg-white text-slate-400 cursor-grab active:cursor-grabbing shadow-sm ${draggingIndex === index ? 'ring-2 ring-slate-300/80 shadow-md' : ''
-                      }`}
-                    title="Drag to reorder slide"
+                    key={index}
+                    className="flex items-stretch gap-3"
+                    onDragOver={handleDragOver}
+                    onDrop={(event) => handleDrop(event, index)}
                   >
-                    <svg
-                      className="h-4 w-4"
-                      viewBox="0 0 20 20"
-                      fill="none"
-                      xmlns="http://www.w3.org/2000/svg"
+                    {/* Drag handle */}
+                    <div
+                      draggable
+                      onDragStart={(event) => handleDragStart(event, index)}
+                      onDragEnd={handleDragEnd}
+                      className={`mt-6 flex h-9 w-7 items-center justify-center rounded-full border border-slate-200/70 bg-white text-slate-400 cursor-grab active:cursor-grabbing shadow-sm ${draggingIndex === index ? 'ring-2 ring-slate-300/80 shadow-md' : ''
+                        }`}
+                      title="Drag to reorder slide"
                     >
-                      <path
-                        d="M4 6h12M4 10h12M4 14h12"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                  </div>
+                      <svg
+                        className="h-4 w-4"
+                        viewBox="0 0 20 20"
+                        fill="none"
+                        xmlns="http://www.w3.org/2000/svg"
+                      >
+                        <path
+                          d="M4 6h12M4 10h12M4 14h12"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                    </div>
 
-                  <div
-                    className={`flex-1 rounded-3xl overflow-hidden transition backdrop-blur-sm p-7 border shadow-sm ${
-                      theme === 'light'
-                        ? 'bg-white/80 border-slate-200/70'
-                        : 'bg-neutral-900/80 border-neutral-700/70'
-                    } ${
-                      draggingIndex === index
-                        ? 'ring-2 ring-slate-300/80 shadow-md translate-y-0'
-                        : 'hover:shadow-md hover:-translate-y-0.5'
-                    }`}
-                  >
-                    {/* Unified Slide Layout for all slides, including title slide */}
-                    <div className="space-y-6">
-                      {/* Slide Header */}
-                      <div className="flex items-start gap-4">
-                        <div className="flex-shrink-0 w-11 h-11 bg-slate-900 rounded-2xl flex items-center justify-center font-semibold text-slate-50 text-base shadow-sm">
-                          {slide.number}
-                        </div>
-                        <div className="flex-1">
-                          <input
-                            type="text"
-                            value={slide.title}
-                            onChange={(e) => handleTitleChange(index, e.target.value)}
-                            className={`w-full bg-transparent border-b focus:outline-none text-xl font-semibold mb-1 ${
-                              theme === 'light'
-                                ? 'border-slate-200/70 focus:border-slate-400 text-slate-900'
-                                : 'border-slate-600/70 focus:border-slate-300 text-slate-50'
-                            }`}
-                          />
-                          <div className="h-1 w-10 bg-slate-900 rounded-full mt-1"></div>
-                        </div>
-                        <button
-                          onClick={() => handleDeleteSlide(index)}
-                          className="flex-shrink-0 p-2 text-slate-300 hover:text-slate-500 transition rounded-full hover:bg-slate-50"
-                          title="Delete slide"
-                        >
-                          <svg
-                            className="w-5 h-5"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                            />
-                          </svg>
-                        </button>
-                      </div>
-
-                      {/* Slide Content - Structured Bulleted List */}
-                      <div className="mt-3">
-                        <ul className="space-y-1.5 list-none">
-                          {slide.content.map((point, idx) => (
-                            <li
-                              key={idx}
-                              className={`flex items-center gap-2 leading-relaxed ${
-                                theme === 'light' ? 'text-slate-700' : 'text-slate-100'
-                              }`}
-                              onDragOver={handleBulletDragOver}
-                              onDrop={(event) => handleBulletDrop(event, index, idx)}
-                            >
-                              {/* Bullet drag handle */}
-                              <div
-                                draggable
-                                onDragStart={(event) =>
-                                  handleBulletDragStart(event, index, idx)
-                                }
-                                className={`flex h-7 w-5 items-center justify-center rounded-full border border-slate-200/70 bg-white text-slate-400 cursor-grab active:cursor-grabbing shadow-sm ${bulletDragging &&
-                                  bulletDragging.slideIndex === index &&
-                                  bulletDragging.bulletIndex === idx
-                                  ? 'ring-2 ring-slate-300/80 shadow-md'
-                                  : ''
-                                  }`}
-                                title="Drag to reorder point"
-                              >
-                                <svg
-                                  className="h-3 w-3"
-                                  viewBox="0 0 20 20"
-                                  fill="none"
-                                  xmlns="http://www.w3.org/2000/svg"
-                                >
-                                  <path
-                                    d="M4 6h12M4 10h12M4 14h12"
-                                    stroke="currentColor"
-                                    strokeWidth="1.5"
-                                    strokeLinecap="round"
-                                  />
-                                </svg>
-                              </div>
-
-                              <input
-                                type="text"
-                                value={point}
-                                onChange={(e) =>
-                                  handleBulletChange(index, idx, e.target.value)
-                                }
-                                className={`flex-1 rounded-lg px-3 py-1.5 text-sm focus:outline-none ${
-                                  theme === 'light'
-                                    ? 'bg-slate-50/80 border border-slate-200/70 focus:border-slate-400 focus:bg-white'
-                                    : 'bg-neutral-900/80 border border-neutral-700/70 focus:border-neutral-400 focus:bg-neutral-900'
+                    <div
+                      className={`flex-1 rounded-3xl overflow-hidden transition backdrop-blur-sm p-7 border shadow-sm ${theme === 'light'
+                          ? 'bg-white/80 border-slate-200/70'
+                          : 'bg-neutral-900/80 border-neutral-700/70'
+                        } ${draggingIndex === index
+                          ? 'ring-2 ring-slate-300/80 shadow-md translate-y-0'
+                          : 'hover:shadow-md hover:-translate-y-0.5'
+                        }`}
+                    >
+                      {/* Unified Slide Layout for all slides, including title slide */}
+                      <div className="space-y-6">
+                        {/* Slide Header */}
+                        <div className="flex items-start gap-4">
+                          <div className="flex-shrink-0 w-11 h-11 bg-slate-900 rounded-2xl flex items-center justify-center font-semibold text-slate-50 text-base shadow-sm">
+                            {slide.number}
+                          </div>
+                          <div className="flex-1">
+                            <input
+                              type="text"
+                              value={slide.title}
+                              onChange={(e) => handleTitleChange(index, e.target.value)}
+                              className={`w-full bg-transparent border-b focus:outline-none text-xl font-semibold mb-1 ${theme === 'light'
+                                  ? 'border-slate-200/70 focus:border-slate-400 text-slate-900'
+                                  : 'border-slate-600/70 focus:border-slate-300 text-slate-50'
                                 }`}
+                            />
+                            <div className="h-1 w-10 bg-slate-900 rounded-full mt-1"></div>
+                          </div>
+                          <button
+                            onClick={() => handleDeleteSlide(index)}
+                            className="flex-shrink-0 p-2 text-slate-300 hover:text-slate-500 transition rounded-full hover:bg-slate-50"
+                            title="Delete slide"
+                          >
+                            <svg
+                              className="w-5 h-5"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
                               />
+                            </svg>
+                          </button>
+                        </div>
 
-                              {/* Bullet actions: add & delete */}
-                              <button
-                                type="button"
-                                onClick={() => handleAddBullet(index, idx)}
-                                className="p-1.5 text-slate-300 hover:text-slate-600 transition rounded-full hover:bg-slate-50"
-                                title="Add bullet below"
+                        {/* Slide Content - Structured Bulleted List */}
+                        <div className="mt-3">
+                          <ul className="space-y-1.5 list-none">
+                            {slide.content.map((point, idx) => (
+                              <li
+                                key={idx}
+                                className={`flex items-center gap-2 leading-relaxed ${theme === 'light' ? 'text-slate-700' : 'text-slate-100'
+                                  }`}
+                                onDragOver={handleBulletDragOver}
+                                onDrop={(event) => handleBulletDrop(event, index, idx)}
                               >
-                                <svg
-                                  className="w-4 h-4"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  viewBox="0 0 24 24"
+                                {/* Bullet drag handle */}
+                                <div
+                                  draggable
+                                  onDragStart={(event) =>
+                                    handleBulletDragStart(event, index, idx)
+                                  }
+                                  className={`flex h-7 w-5 items-center justify-center rounded-full border border-slate-200/70 bg-white text-slate-400 cursor-grab active:cursor-grabbing shadow-sm ${bulletDragging &&
+                                    bulletDragging.slideIndex === index &&
+                                    bulletDragging.bulletIndex === idx
+                                    ? 'ring-2 ring-slate-300/80 shadow-md'
+                                    : ''
+                                    }`}
+                                  title="Drag to reorder point"
                                 >
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M12 4v16m8-8H4"
-                                  />
-                                </svg>
-                              </button>
+                                  <svg
+                                    className="h-3 w-3"
+                                    viewBox="0 0 20 20"
+                                    fill="none"
+                                    xmlns="http://www.w3.org/2000/svg"
+                                  >
+                                    <path
+                                      d="M4 6h12M4 10h12M4 14h12"
+                                      stroke="currentColor"
+                                      strokeWidth="1.5"
+                                      strokeLinecap="round"
+                                    />
+                                  </svg>
+                                </div>
 
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteBullet(index, idx)}
-                                className="p-1.5 text-slate-300 hover:text-slate-600 transition rounded-full hover:bg-slate-50"
-                                title="Delete bullet"
-                              >
-                                <svg
-                                  className="w-4 h-4"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  viewBox="0 0 24 24"
+                                <input
+                                  type="text"
+                                  value={point}
+                                  onChange={(e) =>
+                                    handleBulletChange(index, idx, e.target.value)
+                                  }
+                                  className={`flex-1 rounded-lg px-3 py-1.5 text-sm focus:outline-none ${theme === 'light'
+                                      ? 'bg-slate-50/80 border border-slate-200/70 focus:border-slate-400 focus:bg-white'
+                                      : 'bg-neutral-900/80 border border-neutral-700/70 focus:border-neutral-400 focus:bg-neutral-900'
+                                    }`}
+                                />
+
+                                {/* Bullet actions: add & delete */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleAddBullet(index, idx)}
+                                  className="p-1.5 text-slate-300 hover:text-slate-600 transition rounded-full hover:bg-slate-50"
+                                  title="Add bullet below"
                                 >
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                                  />
-                                </svg>
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
+                                  <svg
+                                    className="w-4 h-4"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M12 4v16m8-8H4"
+                                    />
+                                  </svg>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteBullet(index, idx)}
+                                  className="p-1.5 text-slate-300 hover:text-slate-600 transition rounded-full hover:bg-slate-50"
+                                  title="Delete bullet"
+                                >
+                                  <svg
+                                    className="w-4 h-4"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                    />
+                                  </svg>
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
                 ))}
             </div>
 
@@ -1893,11 +1897,10 @@ Apply all fixes now and return only corrected slides.`
                   alert('Content copied to clipboard!')
                 }}
                 disabled={isGeneratingOutline || !orderedSlides.length}
-                className={`flex items-center gap-2 px-6 py-3 font-semibold rounded-full transition disabled:opacity-50 disabled:cursor-not-allowed ${
-                  theme === 'light'
+                className={`flex items-center gap-2 px-6 py-3 font-semibold rounded-full transition disabled:opacity-50 disabled:cursor-not-allowed ${theme === 'light'
                     ? 'border border-slate-300 text-slate-800 hover:bg-slate-100'
                     : 'border border-slate-600 text-slate-100 hover:bg-slate-900'
-                }`}
+                  }`}
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
@@ -1919,7 +1922,7 @@ Apply all fixes now and return only corrected slides.`
                 }}
                 disabled={isGeneratingOutline || !orderedSlides.length}
                 className="pointer-events-auto inline-flex items-center gap-2 px-6 py-3 rounded-full bg-slate-900 text-slate-50 font-semibold shadow-lg hover:bg-black transition disabled:opacity-50 disabled:cursor-not-allowed"
-             >
+              >
                 <span>Select Template</span>
               </button>
             </div>
@@ -1953,192 +1956,201 @@ Apply all fixes now and return only corrected slides.`
 
             const buildSlideDataFn = !isNeoGeneralGroup && layouts.length
               ? (slide: GeneratedPresentationSlide, layoutIndex = 0) => {
-                  const effectiveIndex = layoutIndex % layouts.length
-                  const layout = layouts[effectiveIndex]
-                  const baseData: any = { ...(layout.sampleData || {}) }
-                  const sampleData: any = layout.sampleData || {}
-                  const data: any = { ...baseData }
+                const effectiveIndex = layoutIndex % layouts.length
+                const layout = layouts[effectiveIndex]
+                const baseData: any = { ...(layout.sampleData || {}) }
+                const sampleData: any = layout.sampleData || {}
 
-                  if (Object.prototype.hasOwnProperty.call(data, 'title')) {
-                    data.title = slide.title
+                if ((slide as any).layoutData) {
+                  const mergedData = { ...baseData, ...(slide as any).layoutData }
+                  if (slide.imageSrc && mergedData.image) {
+                    mergedData.image.__image_url__ = slide.imageSrc
                   }
+                  return mergedData
+                }
 
-                  if (Object.prototype.hasOwnProperty.call(data, 'description')) {
-                    const isNeoGeneral = selectedTemplateGroup?.id === 'neo-general'
-                    data.description = isNeoGeneral
-                      ? slide.content.join(' ')
-                      : slide.content.join(' · ')
+                const data: any = { ...baseData }
+
+                if (Object.prototype.hasOwnProperty.call(data, 'title')) {
+                  data.title = slide.title
+                }
+
+                if (Object.prototype.hasOwnProperty.call(data, 'description')) {
+                  const isNeoGeneral = selectedTemplateGroup?.id === 'neo-general'
+                  data.description = isNeoGeneral
+                    ? slide.content.join(' ')
+                    : slide.content.join(' · ')
+                }
+
+                // Common primary image mapping
+                if (Object.prototype.hasOwnProperty.call(data, 'image')) {
+                  const baseImage = (data.image || {}) as any
+                  data.image = {
+                    ...baseImage,
+                    __image_url__: slide.imageSrc || baseImage.__image_url__,
+                    __image_prompt__:
+                      baseImage.__image_prompt__ || `Illustration for slide ${slide.number}: ${slide.title}`,
                   }
+                }
 
-                  // Common primary image mapping
-                  if (Object.prototype.hasOwnProperty.call(data, 'image')) {
-                    const baseImage = (data.image || {}) as any
-                    data.image = {
-                      ...baseImage,
-                      __image_url__: slide.imageSrc || baseImage.__image_url__,
-                      __image_prompt__:
-                        baseImage.__image_prompt__ || `Illustration for slide ${slide.number}: ${slide.title}`,
-                    }
-                  }
+                // Neo-general specific: previous layout-aware mapping logic lived here.
+                // We now render neo-general slides using the generic fallback card
+                // layout in PresentationView, so this branch is not used anymore.
+                if (selectedTemplateGroup?.id === 'neo-general') {
+                  const layoutFile = layout.fileName || ''
 
-                  // Neo-general specific: previous layout-aware mapping logic lived here.
-                  // We now render neo-general slides using the generic fallback card
-                  // layout in PresentationView, so this branch is not used anymore.
-                  if (selectedTemplateGroup?.id === 'neo-general') {
-                    const layoutFile = layout.fileName || ''
+                  // Helper: split a bullet into title/description parts
+                  const splitBullet = (text: string) => {
+                    const trimmed = text.trim()
+                    if (!trimmed) return { title: '', description: '' }
 
-                    // Helper: split a bullet into title/description parts
-                    const splitBullet = (text: string) => {
-                      const trimmed = text.trim()
-                      if (!trimmed) return { title: '', description: '' }
-
-                      // Try to split on colon or dash first
-                      const colonIdx = trimmed.indexOf(':')
-                      if (colonIdx > 0 && colonIdx < trimmed.length - 1) {
-                        return {
-                          title: trimmed.slice(0, colonIdx).trim(),
-                          description: trimmed.slice(colonIdx + 1).trim(),
-                        }
-                      }
-
-                      const dashIdx = trimmed.indexOf(' - ')
-                      if (dashIdx > 0 && dashIdx < trimmed.length - 1) {
-                        return {
-                          title: trimmed.slice(0, dashIdx).trim(),
-                          description: trimmed.slice(dashIdx + 3).trim(),
-                        }
-                      }
-
-                      // Fallback: first sentence vs rest
-                      const sentenceMatch = trimmed.match(/^(.*?[.!?])\s+(.*)$/)
-                      if (sentenceMatch) {
-                        return {
-                          title: sentenceMatch[1].trim(),
-                          description: sentenceMatch[2].trim(),
-                        }
-                      }
-
-                      // Short text → title only
-                      if (trimmed.length <= 60) {
-                        return { title: trimmed, description: '' }
-                      }
-
+                    // Try to split on colon or dash first
+                    const colonIdx = trimmed.indexOf(':')
+                    if (colonIdx > 0 && colonIdx < trimmed.length - 1) {
                       return {
-                        title: trimmed.slice(0, 60).trim(),
-                        description: trimmed.slice(60).trim(),
+                        title: trimmed.slice(0, colonIdx).trim(),
+                        description: trimmed.slice(colonIdx + 1).trim(),
                       }
                     }
 
-                    // Start from all outline points, then adjust per layout type
-                    const allBullets = [...slide.content]
-                    let bullets = [...allBullets]
-
-                    // Layout-specific shaping of bullets vs description
-                    // so that content fits the visual emphasis of each layout.
-                    if (layoutFile === 'BulletWithIconsSlideLayout') {
-                      // Use the first point as the main description paragraph,
-                      // and the remaining points as icon bullets.
-                      if (bullets.length && Object.prototype.hasOwnProperty.call(data, 'description')) {
-                        ;(data as any).description = bullets[0]
-                        bullets = bullets.slice(1)
-                      }
-                    } else if (layoutFile === 'ChartWithBulletsSlideLayout') {
-                      // Treat the first point as an intro above the chart,
-                      // and the remaining points as supporting bullet cards.
-                      if (bullets.length && Object.prototype.hasOwnProperty.call(data, 'description')) {
-                        ;(data as any).description = bullets[0]
-                        bullets = bullets.slice(1)
-                      }
-                    } else if (layoutFile === 'HeadlineTextWithBulletsAndStatsLayout') {
-                      // Keep all bullets for the numbered list on the left;
-                      // if there is a description field, use a compact summary.
-                      if (Object.prototype.hasOwnProperty.call(data, 'description') && bullets.length) {
-                        ;(data as any).description = bullets.join(' ')
-                      }
-                    } else if (
-                      layoutFile === 'HeadlineDescriptionWithImageLayout' ||
-                      layoutFile === 'HeadlineDescriptionWithDoubleImageLayout'
-                    ) {
-                      // These are primarily title + paragraph + image; join
-                      // all bullets into a single flowing paragraph.
-                      if (Object.prototype.hasOwnProperty.call(data, 'description') && bullets.length) {
-                        ;(data as any).description = bullets.join(' ')
+                    const dashIdx = trimmed.indexOf(' - ')
+                    if (dashIdx > 0 && dashIdx < trimmed.length - 1) {
+                      return {
+                        title: trimmed.slice(0, dashIdx).trim(),
+                        description: trimmed.slice(dashIdx + 3).trim(),
                       }
                     }
 
-                    // Map bullet arrays (bulletPoints, bullets, etc.) from bullets
-                    Object.keys(data).forEach((key) => {
-                      const lower = key.toLowerCase()
-                      if (!lower.includes('bullet')) return
-
-                      const value = data[key]
-                      if (!Array.isArray(value) || value.length === 0) return
-
-                      // Simple string bullets: show ALL outline points
-                      if (typeof value[0] === 'string') {
-                        data[key] = bullets.length ? [...bullets] : [...value]
-                        return
-                      }
-
-                      // Object bullets (e.g., bulletPoints with title/description):
-                      // expand or shrink to cover all outline points, reusing the
-                      // sample items as a visual template.
-                      if (typeof value[0] === 'object' && value[0] !== null) {
-                        const templateItems = value as any[]
-                        const sourceTexts = bullets.length ? bullets : templateItems.map(() => '')
-
-                        data[key] = sourceTexts.map((text, idx) => {
-                          const base = templateItems[idx % templateItems.length] || {}
-                          const next: any = { ...base }
-
-                          if (!text) return next
-
-                          const parts = splitBullet(text)
-
-                          if (Object.prototype.hasOwnProperty.call(base, 'title')) {
-                            next.title = parts.title || text
-                          }
-                          if (Object.prototype.hasOwnProperty.call(base, 'description')) {
-                            next.description = parts.description || text
-                          }
-
-                          return next
-                        })
-                      }
-                    })
-
-                    // If this layout already has a bullet array field, keep the
-                    // main description compact (e.g., first point only) so the
-                    // slide doesn't repeat the same text as both paragraph and bullets.
-                    const hasBulletArrayField = Object.keys(data).some((key) => {
-                      const lower = key.toLowerCase()
-                      const value = (data as any)[key]
-                      return lower.includes('bullet') && Array.isArray(value) && value.length > 0
-                    })
-
-                    if (hasBulletArrayField && Object.prototype.hasOwnProperty.call(data, 'description')) {
-                      ;(data as any).description = allBullets[0] || (data as any).description
-                    }
-
-                    // TextSplitWithEmphasisBlock and similar layouts use
-                    // insightTitle / insightDescription instead of bullet arrays.
-                    if (Object.prototype.hasOwnProperty.call(data, 'insightTitle')) {
-                      const firstPoint = bullets[0]
-                      if (firstPoint) {
-                        data.insightTitle = firstPoint
-                      }
-                    }
-                    if (Object.prototype.hasOwnProperty.call(data, 'insightDescription')) {
-                      const rest = bullets.slice(1)
-                      if (rest.length) {
-                        data.insightDescription = rest.join(' ')
+                    // Fallback: first sentence vs rest
+                    const sentenceMatch = trimmed.match(/^(.*?[.!?])\s+(.*)$/)
+                    if (sentenceMatch) {
+                      return {
+                        title: sentenceMatch[1].trim(),
+                        description: sentenceMatch[2].trim(),
                       }
                     }
 
-                    // Layouts with metrics (e.g., MetricsWithImageSlideLayout)
-                    if (Array.isArray((data as any).metrics)) {
-                      const metrics = (data as any).metrics as any[]
-                      ;(data as any).metrics = metrics.map((metric, idx) => {
+                    // Short text → title only
+                    if (trimmed.length <= 60) {
+                      return { title: trimmed, description: '' }
+                    }
+
+                    return {
+                      title: trimmed.slice(0, 60).trim(),
+                      description: trimmed.slice(60).trim(),
+                    }
+                  }
+
+                  // Start from all outline points, then adjust per layout type
+                  const allBullets = [...slide.content]
+                  let bullets = [...allBullets]
+
+                  // Layout-specific shaping of bullets vs description
+                  // so that content fits the visual emphasis of each layout.
+                  if (layoutFile === 'BulletWithIconsSlideLayout') {
+                    // Use the first point as the main description paragraph,
+                    // and the remaining points as icon bullets.
+                    if (bullets.length && Object.prototype.hasOwnProperty.call(data, 'description')) {
+                      ; (data as any).description = bullets[0]
+                      bullets = bullets.slice(1)
+                    }
+                  } else if (layoutFile === 'ChartWithBulletsSlideLayout') {
+                    // Treat the first point as an intro above the chart,
+                    // and the remaining points as supporting bullet cards.
+                    if (bullets.length && Object.prototype.hasOwnProperty.call(data, 'description')) {
+                      ; (data as any).description = bullets[0]
+                      bullets = bullets.slice(1)
+                    }
+                  } else if (layoutFile === 'HeadlineTextWithBulletsAndStatsLayout') {
+                    // Keep all bullets for the numbered list on the left;
+                    // if there is a description field, use a compact summary.
+                    if (Object.prototype.hasOwnProperty.call(data, 'description') && bullets.length) {
+                      ; (data as any).description = bullets.join(' ')
+                    }
+                  } else if (
+                    layoutFile === 'HeadlineDescriptionWithImageLayout' ||
+                    layoutFile === 'HeadlineDescriptionWithDoubleImageLayout'
+                  ) {
+                    // These are primarily title + paragraph + image; join
+                    // all bullets into a single flowing paragraph.
+                    if (Object.prototype.hasOwnProperty.call(data, 'description') && bullets.length) {
+                      ; (data as any).description = bullets.join(' ')
+                    }
+                  }
+
+                  // Map bullet arrays (bulletPoints, bullets, etc.) from bullets
+                  Object.keys(data).forEach((key) => {
+                    const lower = key.toLowerCase()
+                    if (!lower.includes('bullet')) return
+
+                    const value = data[key]
+                    if (!Array.isArray(value) || value.length === 0) return
+
+                    // Simple string bullets: show ALL outline points
+                    if (typeof value[0] === 'string') {
+                      data[key] = bullets.length ? [...bullets] : [...value]
+                      return
+                    }
+
+                    // Object bullets (e.g., bulletPoints with title/description):
+                    // expand or shrink to cover all outline points, reusing the
+                    // sample items as a visual template.
+                    if (typeof value[0] === 'object' && value[0] !== null) {
+                      const templateItems = value as any[]
+                      const sourceTexts = bullets.length ? bullets : templateItems.map(() => '')
+
+                      data[key] = sourceTexts.map((text, idx) => {
+                        const base = templateItems[idx % templateItems.length] || {}
+                        const next: any = { ...base }
+
+                        if (!text) return next
+
+                        const parts = splitBullet(text)
+
+                        if (Object.prototype.hasOwnProperty.call(base, 'title')) {
+                          next.title = parts.title || text
+                        }
+                        if (Object.prototype.hasOwnProperty.call(base, 'description')) {
+                          next.description = parts.description || text
+                        }
+
+                        return next
+                      })
+                    }
+                  })
+
+                  // If this layout already has a bullet array field, keep the
+                  // main description compact (e.g., first point only) so the
+                  // slide doesn't repeat the same text as both paragraph and bullets.
+                  const hasBulletArrayField = Object.keys(data).some((key) => {
+                    const lower = key.toLowerCase()
+                    const value = (data as any)[key]
+                    return lower.includes('bullet') && Array.isArray(value) && value.length > 0
+                  })
+
+                  if (hasBulletArrayField && Object.prototype.hasOwnProperty.call(data, 'description')) {
+                    ; (data as any).description = allBullets[0] || (data as any).description
+                  }
+
+                  // TextSplitWithEmphasisBlock and similar layouts use
+                  // insightTitle / insightDescription instead of bullet arrays.
+                  if (Object.prototype.hasOwnProperty.call(data, 'insightTitle')) {
+                    const firstPoint = bullets[0]
+                    if (firstPoint) {
+                      data.insightTitle = firstPoint
+                    }
+                  }
+                  if (Object.prototype.hasOwnProperty.call(data, 'insightDescription')) {
+                    const rest = bullets.slice(1)
+                    if (rest.length) {
+                      data.insightDescription = rest.join(' ')
+                    }
+                  }
+
+                  // Layouts with metrics (e.g., MetricsWithImageSlideLayout)
+                  if (Array.isArray((data as any).metrics)) {
+                    const metrics = (data as any).metrics as any[]
+                      ; (data as any).metrics = metrics.map((metric, idx) => {
                         const text = bullets[idx] || ''
                         if (!text) return metric
 
@@ -2154,109 +2166,109 @@ Apply all fixes now and return only corrected slides.`
                           value: value || metric.value,
                         }
                       })
-                    }
-
-                    // Additional image slots for neo-general (e.g., firstImage, secondImage)
-                    const imageKeys = ['firstImage', 'secondImage', 'thirdImage']
-                    imageKeys.forEach((key) => {
-                      if (!Object.prototype.hasOwnProperty.call(data, key)) return
-                      const baseImage = (data[key] || {}) as any
-                      data[key] = {
-                        ...baseImage,
-                        __image_url__: slide.imageSrc || baseImage.__image_url__,
-                        __image_prompt__:
-                          baseImage.__image_prompt__ || `Illustration for slide ${slide.number}: ${slide.title}`,
-                      }
-                    })
-
-                    // Generic pass: replace any leftover sample marketing copy
-                    // with outline-driven text for neo-general templates.
-                    const tailorStrings = (node: any, sampleNode: any, parentKey = '') => {
-                      if (Array.isArray(node)) {
-                        node.forEach((item, idx) => {
-                          const sampleItem = Array.isArray(sampleNode) ? sampleNode[idx] : undefined
-                          tailorStrings(item, sampleItem, parentKey)
-                        })
-                        return
-                      }
-
-                      if (!node || typeof node !== 'object') return
-
-                      Object.keys(node).forEach((key) => {
-                        const value = (node as any)[key]
-                        const sampleValue = sampleNode ? (sampleNode as any)[key] : undefined
-
-                        if (typeof value === 'string') {
-                          const lowerKey = key.toLowerCase()
-                          const isStructural =
-                            key.startsWith('__') || key === 'layoutId' || key === 'slideNumber'
-
-                          if (isStructural) return
-
-                          const wasSample = typeof sampleValue === 'string' && value === sampleValue
-                          if (!wasSample) return
-
-                          const hasBullets = bullets.length > 0
-                          const fullText = hasBullets ? bullets.join(' ') : slide.title
-
-                          if (/(title|heading)/i.test(lowerKey)) {
-                            ;(node as any)[key] = hasBullets ? bullets[0] : slide.title
-                          } else if (/(subtitle|description|body|text|summary|copy)/i.test(lowerKey)) {
-                            ;(node as any)[key] = fullText
-                          }
-                        } else if (typeof value === 'object' && value !== null) {
-                          tailorStrings(value, sampleValue, key)
-                        }
-                      })
-                    }
-
-                    tailorStrings(data, sampleData)
-
-                    // Final scrub: remove any remaining sample strings that do not
-                    // overlap with the outline or slide title. This clears chart
-                    // labels (Revenue, Jan, Feb, etc.), demo bios, and other
-                    // marketing text that isn't part of the user's outline.
-                    const outlineStrings = [slide.title, ...allBullets]
-                      .map((s) => (s || '').toLowerCase())
-                      .filter((s) => s.length > 0)
-
-                    const scrubNonOutlineStrings = (node: any) => {
-                      if (Array.isArray(node)) {
-                        node.forEach((item) => scrubNonOutlineStrings(item))
-                        return
-                      }
-
-                      if (!node || typeof node !== 'object') return
-
-                      Object.keys(node).forEach((key) => {
-                        const value = (node as any)[key]
-                        if (typeof value === 'string') {
-                          const isStructural =
-                            key.startsWith('__') || key === 'layoutId' || key === 'slideNumber'
-                          if (isStructural) return
-
-                          const lowerValue = value.toLowerCase().trim()
-                          if (!lowerValue) return
-
-                          const matchesOutline = outlineStrings.some((src) => {
-                            if (!src) return false
-                            return src.includes(lowerValue) || lowerValue.includes(src)
-                          })
-
-                          if (!matchesOutline) {
-                            ;(node as any)[key] = ''
-                          }
-                        } else if (value && typeof value === 'object') {
-                          scrubNonOutlineStrings(value)
-                        }
-                      })
-                    }
-
-                    scrubNonOutlineStrings(data)
                   }
 
-                  return data
+                  // Additional image slots for neo-general (e.g., firstImage, secondImage)
+                  const imageKeys = ['firstImage', 'secondImage', 'thirdImage']
+                  imageKeys.forEach((key) => {
+                    if (!Object.prototype.hasOwnProperty.call(data, key)) return
+                    const baseImage = (data[key] || {}) as any
+                    data[key] = {
+                      ...baseImage,
+                      __image_url__: slide.imageSrc || baseImage.__image_url__,
+                      __image_prompt__:
+                        baseImage.__image_prompt__ || `Illustration for slide ${slide.number}: ${slide.title}`,
+                    }
+                  })
+
+                  // Generic pass: replace any leftover sample marketing copy
+                  // with outline-driven text for neo-general templates.
+                  const tailorStrings = (node: any, sampleNode: any, parentKey = '') => {
+                    if (Array.isArray(node)) {
+                      node.forEach((item, idx) => {
+                        const sampleItem = Array.isArray(sampleNode) ? sampleNode[idx] : undefined
+                        tailorStrings(item, sampleItem, parentKey)
+                      })
+                      return
+                    }
+
+                    if (!node || typeof node !== 'object') return
+
+                    Object.keys(node).forEach((key) => {
+                      const value = (node as any)[key]
+                      const sampleValue = sampleNode ? (sampleNode as any)[key] : undefined
+
+                      if (typeof value === 'string') {
+                        const lowerKey = key.toLowerCase()
+                        const isStructural =
+                          key.startsWith('__') || key === 'layoutId' || key === 'slideNumber'
+
+                        if (isStructural) return
+
+                        const wasSample = typeof sampleValue === 'string' && value === sampleValue
+                        if (!wasSample) return
+
+                        const hasBullets = bullets.length > 0
+                        const fullText = hasBullets ? bullets.join(' ') : slide.title
+
+                        if (/(title|heading)/i.test(lowerKey)) {
+                          ; (node as any)[key] = hasBullets ? bullets[0] : slide.title
+                        } else if (/(subtitle|description|body|text|summary|copy)/i.test(lowerKey)) {
+                          ; (node as any)[key] = fullText
+                        }
+                      } else if (typeof value === 'object' && value !== null) {
+                        tailorStrings(value, sampleValue, key)
+                      }
+                    })
+                  }
+
+                  tailorStrings(data, sampleData)
+
+                  // Final scrub: remove any remaining sample strings that do not
+                  // overlap with the outline or slide title. This clears chart
+                  // labels (Revenue, Jan, Feb, etc.), demo bios, and other
+                  // marketing text that isn't part of the user's outline.
+                  const outlineStrings = [slide.title, ...allBullets]
+                    .map((s) => (s || '').toLowerCase())
+                    .filter((s) => s.length > 0)
+
+                  const scrubNonOutlineStrings = (node: any) => {
+                    if (Array.isArray(node)) {
+                      node.forEach((item) => scrubNonOutlineStrings(item))
+                      return
+                    }
+
+                    if (!node || typeof node !== 'object') return
+
+                    Object.keys(node).forEach((key) => {
+                      const value = (node as any)[key]
+                      if (typeof value === 'string') {
+                        const isStructural =
+                          key.startsWith('__') || key === 'layoutId' || key === 'slideNumber'
+                        if (isStructural) return
+
+                        const lowerValue = value.toLowerCase().trim()
+                        if (!lowerValue) return
+
+                        const matchesOutline = outlineStrings.some((src) => {
+                          if (!src) return false
+                          return src.includes(lowerValue) || lowerValue.includes(src)
+                        })
+
+                        if (!matchesOutline) {
+                          ; (node as any)[key] = ''
+                        }
+                      } else if (value && typeof value === 'object') {
+                        scrubNonOutlineStrings(value)
+                      }
+                    })
+                  }
+
+                  scrubNonOutlineStrings(data)
                 }
+
+                return data
+              }
               : null
 
             return (

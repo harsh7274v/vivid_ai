@@ -6,6 +6,8 @@ interface SaveSlideInput {
   title: string
   content: string[]
   imageSrc?: string | null
+  layoutData?: any
+  layoutIndex?: number
 }
 
 export async function POST(req: NextRequest) {
@@ -69,14 +71,19 @@ export async function POST(req: NextRequest) {
           }
         }
 
+        const styleData: any = {}
+        if (finalImageSrc) styleData.imageSrc = finalImageSrc
+        if (slide.layoutData) styleData.layoutData = slide.layoutData
+        if (typeof slide.layoutIndex === 'number') styleData.layoutIndex = slide.layoutIndex
+
         return {
           order: index + 1,
           title: slide.title,
           content: Array.isArray(slide.content)
             ? slide.content.join('\n')
             : String(slide.content ?? ''),
-          styleJson: finalImageSrc
-            ? JSON.stringify({ imageSrc: finalImageSrc })
+          styleJson: Object.keys(styleData).length > 0
+            ? JSON.stringify(styleData)
             : undefined,
         }
       })
