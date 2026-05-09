@@ -1002,10 +1002,27 @@ Apply all fixes now and return only corrected slides.`
 
       const prompt = `${systemPrompt}\n\n${userPrompt}`
 
-      const responseText = await generateOpenRouterText({
-        prompt,
-        model: DEFAULT_OUTLINE_MODEL,
-      })
+      let responseText = ''
+      let provider = 'open-model'
+      try {
+        if (pendingOutline && contentFromQuery) {
+          const payload = JSON.parse(decodeURIComponent(contentFromQuery))
+          if (payload.generationProvider === 'gpt') provider = 'gpt'
+        }
+      } catch (e) {}
+
+      if (provider === 'gpt') {
+        const puterResponse: any = await puter.ai.chat(prompt)
+        if (typeof puterResponse === 'string') responseText = puterResponse
+        else if (puterResponse?.message?.content) responseText = puterResponse.message.content
+        else if (puterResponse?.text) responseText = puterResponse.text
+        else responseText = typeof puterResponse === 'object' ? JSON.stringify(puterResponse) : String(puterResponse)
+      } else {
+        responseText = await generateOpenRouterText({
+          prompt,
+          model: DEFAULT_OUTLINE_MODEL,
+        })
+      }
 
       let parsed: any
       try {
@@ -1084,10 +1101,27 @@ Apply all fixes now and return only corrected slides.`
 
       const prompt = `${systemPrompt}\n\n${userPrompt}`
 
-      const responseText = await generateOpenRouterText({
-        prompt,
-        model: DEFAULT_OUTLINE_MODEL,
-      })
+      let responseText = ''
+      let provider = 'open-model'
+      try {
+        if (pendingOutline && contentFromQuery) {
+          const payload = JSON.parse(decodeURIComponent(contentFromQuery))
+          if (payload.generationProvider === 'gpt') provider = 'gpt'
+        }
+      } catch (e) {}
+
+      if (provider === 'gpt') {
+        const puterResponse: any = await puter.ai.chat(prompt)
+        if (typeof puterResponse === 'string') responseText = puterResponse
+        else if (puterResponse?.message?.content) responseText = puterResponse.message.content
+        else if (puterResponse?.text) responseText = puterResponse.text
+        else responseText = typeof puterResponse === 'object' ? JSON.stringify(puterResponse) : String(puterResponse)
+      } else {
+        responseText = await generateOpenRouterText({
+          prompt,
+          model: DEFAULT_OUTLINE_MODEL,
+        })
+      }
 
       let parsed: any
       try {
@@ -1164,10 +1198,27 @@ Apply all fixes now and return only corrected slides.`
 
       const prompt = `${systemPrompt}\n\n${userPrompt}`
 
-      const responseText = await generateOpenRouterText({
-        prompt,
-        model: DEFAULT_OUTLINE_MODEL,
-      })
+      let responseText = ''
+      let provider = 'open-model'
+      try {
+        if (pendingOutline && contentFromQuery) {
+          const payload = JSON.parse(decodeURIComponent(contentFromQuery))
+          if (payload.generationProvider === 'gpt') provider = 'gpt'
+        }
+      } catch (e) {}
+
+      if (provider === 'gpt') {
+        const puterResponse: any = await puter.ai.chat(prompt)
+        if (typeof puterResponse === 'string') responseText = puterResponse
+        else if (puterResponse?.message?.content) responseText = puterResponse.message.content
+        else if (puterResponse?.text) responseText = puterResponse.text
+        else responseText = typeof puterResponse === 'object' ? JSON.stringify(puterResponse) : String(puterResponse)
+      } else {
+        responseText = await generateOpenRouterText({
+          prompt,
+          model: DEFAULT_OUTLINE_MODEL,
+        })
+      }
 
       let parsed: any
       try {
@@ -1211,36 +1262,34 @@ Apply all fixes now and return only corrected slides.`
         }
       }
 
-      const generated = await Promise.all(
-        orderedSlides.map(async (slide, index) => {
-          try {
-            let imageUrl: string | null = null
+      const generated: any[] = []
 
-            if (useAiGeneratedImages) {
-              const aiResponse = await fetch('/api/images/cloudflare-worker', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  prompt: buildAiImagePrompt(slide),
-                }),
-              })
+      // Process slides sequentially to avoid burst API rate limits
+      for (let index = 0; index < orderedSlides.length; index++) {
+        const slide = orderedSlides[index]
+        try {
+          let imageUrl: string | null = null
 
-              if (!aiResponse.ok) {
-                console.error(
-                  'Cloudflare image worker error for slide',
-                  slide.number,
-                  await aiResponse.text()
-                )
-                return {
-                  ...slide,
-                  imageSrc: null,
-                }
-              }
+          if (useAiGeneratedImages) {
+            const aiResponse = await fetch('/api/images/cloudflare-worker', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                prompt: buildAiImagePrompt(slide),
+              }),
+            })
 
+            if (!aiResponse.ok) {
+              console.error(
+                'Cloudflare image worker error for slide',
+                slide.number,
+                await aiResponse.text()
+              )
+              imageUrl = null
+            } else {
               const contentType = aiResponse.headers.get('content-type') || ''
-
               if (contentType.includes('application/json')) {
                 const payload = await aiResponse.json().catch(() => null)
                 imageUrl = getImageUrlFromJsonPayload(payload)
@@ -1248,41 +1297,26 @@ Apply all fixes now and return only corrected slides.`
                 const blob = await aiResponse.blob()
                 imageUrl = await blobToDataUrl(blob)
               }
+            }
+          } else {
+            const response = await fetch('/api/images/pexels', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                query: `${slide.title} ${slide.content.join(' ')}`.slice(0, 200),
+                perPage: 1,
+                orientation: 'landscape',
+              }),
+            })
 
-              if (!imageUrl) {
-                console.error('Cloudflare worker returned a non-image payload for slide', slide.number)
-                return {
-                  ...slide,
-                  imageSrc: null,
-                }
-              }
-            } else {
-              const response = await fetch('/api/images/pexels', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  query: `${slide.title} ${slide.content.join(' ')}`.slice(0, 200),
-                  perPage: 1,
-                  orientation: 'landscape',
-                }),
-              })
-
-              if (!response.ok) {
-                console.error('Pexels API error for slide', slide.number, await response.text())
-                return {
-                  ...slide,
-                  imageSrc: null,
-                }
-              }
-
+            if (response.ok) {
               const data = (await response.json()) as {
                 photos?: Array<{
                   src?: Record<string, string>
                 }>
               }
-
               const photo = data.photos?.[0]
               const src = photo?.src
               imageUrl =
@@ -1293,73 +1327,58 @@ Apply all fixes now and return only corrected slides.`
                 src?.original ||
                 null
             }
+          }
 
-            // For templates configured for AI mapping, keep the original outline points
-            // so they can be rendered as bullets in the slide layouts,
-            // while still allowing an optimized title and optional
-            // layout-specific AI-filled data.
-            if (isAiMappedGroup) {
-              let optimized: { title: string; description: string } | null = null
-              try {
-                optimized = await optimizeSlideForTemplate(slide)
-              } catch {
-                optimized = null
-              }
-
-              let layoutData: any | null = null
-              const layouts = selectedTemplateGroup?.layouts || []
-              if (layouts.length) {
-                const fallbackIndex = index % layouts.length
-                const rawIndex = aiLayoutIndices && typeof aiLayoutIndices[index] === 'number'
+          if (isAiMappedGroup) {
+            let layoutData: any | null = null
+            const layouts = selectedTemplateGroup?.layouts || []
+            if (layouts.length) {
+              const fallbackIndex = index % layouts.length
+              const rawIndex =
+                aiLayoutIndices && typeof aiLayoutIndices[index] === 'number'
                   ? (aiLayoutIndices[index] as number)
                   : fallbackIndex
-                const safeIndex = rawIndex >= 0 && rawIndex < layouts.length ? rawIndex : fallbackIndex
-                const layout = layouts[safeIndex]
+              const safeIndex =
+                rawIndex >= 0 && rawIndex < layouts.length ? rawIndex : fallbackIndex
+              const layout = layouts[safeIndex]
 
-                if (layout) {
-                  try {
-                    layoutData = await fitSlideToLayout(
-                      {
-                        number: slide.number,
-                        title: optimized?.title || slide.title,
-                        content: slide.content,
-                      },
-                      layout
-                    )
-                  } catch {
-                    layoutData = null
-                  }
+              if (layout) {
+                try {
+                  layoutData = await fitSlideToLayout(
+                    {
+                      number: slide.number,
+                      title: slide.title,
+                      content: slide.content,
+                    },
+                    layout
+                  )
+                } catch {
+                  layoutData = null
                 }
               }
-
-              return {
-                ...slide,
-                title: optimized?.title || slide.title,
-                // Preserve full outline points for AI-mapped templates
-                content: slide.content,
-                imageSrc: imageUrl,
-                layoutData: layoutData || undefined,
-              }
             }
 
+            generated.push({
+              ...slide,
+              title: layoutData?.title || slide.title,
+              content: slide.content,
+              imageSrc: imageUrl,
+              layoutData: layoutData || undefined,
+            })
+          } else {
             const optimized = await optimizeSlideForTemplate(slide)
-
-            return {
+            generated.push({
               ...slide,
               title: optimized.title,
-              // Non neo-general templates use a concise paragraph description
               content: [optimized.description],
               imageSrc: imageUrl,
-            }
-          } catch (error) {
-            console.error('Image generation failed for slide', slide.number, error)
-            return {
-              ...slide,
-              imageSrc: null,
-            }
+            })
           }
-        })
-      )
+        } catch (error) {
+          console.error('Generation failed for slide', slide.number, error)
+          generated.push({ ...slide, imageSrc: null })
+        }
+      }
 
       // Persist generated presentation for the current user (best-effort)
       if (typeof window !== 'undefined') {
