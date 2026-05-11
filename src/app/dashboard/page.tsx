@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useMemo, useRef, useState, useCallback, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ExternalLink, LogOut, ChevronDown } from 'lucide-react'
 import { templates } from '@/app/presentation-templates'
@@ -25,6 +25,7 @@ interface PresentationSummary {
 
 interface HistoryResponse {
   presentations: PresentationSummary[]
+  creditsUsed?: number
 }
 
 interface ActivityItem {
@@ -34,12 +35,21 @@ interface ActivityItem {
   timestamp: string
 }
 
-export default function DashboardPage() {
+function DashboardContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const initialView = searchParams.get('view') === 'templates' ? 'templates' : 'overview'
   const { theme, toggleTheme } = useTheme()
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const [userName, setUserName] = useState<string | null>(null)
-  const [activeView, setActiveView] = useState<'overview' | 'templates' | 'presentations'>('overview')
+  const [activeView, setActiveView] = useState<'overview' | 'templates' | 'presentations'>(initialView)
+
+  useEffect(() => {
+    const view = searchParams.get('view')
+    if (view === 'templates' || view === 'overview' || view === 'presentations') {
+      setActiveView(view as any)
+    }
+  }, [searchParams])
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false)
   const [showLoadingBar, setShowLoadingBar] = useState(false)
   const profileDropdownRef = useRef<HTMLDivElement>(null)
@@ -114,10 +124,10 @@ export default function DashboardPage() {
     router.replace('/')
   }, [router])
 
-  const { data, isLoading } = useQuery<PresentationSummary[]>({
+  const { data, isLoading } = useQuery<{ presentations: PresentationSummary[]; creditsUsed: number }>({
     queryKey: ['presentations-history', userEmail],
     queryFn: async () => {
-      if (!userEmail) return []
+      if (!userEmail) return { presentations: [], creditsUsed: 0 }
       const res = await fetch(
         `/api/presentations/history?userEmail=${encodeURIComponent(userEmail)}`
       )
@@ -125,7 +135,10 @@ export default function DashboardPage() {
         throw new Error('Failed to load presentations history')
       }
       const json = (await res.json()) as HistoryResponse
-      return json.presentations || []
+      return {
+        presentations: json.presentations || [],
+        creditsUsed: json.creditsUsed || 0,
+      }
     },
     enabled: !!userEmail,
     staleTime: 60_000,
@@ -133,10 +146,11 @@ export default function DashboardPage() {
     refetchInterval: 30_000,
   })
 
-  const presentations = data || []
+  const presentations = data?.presentations || []
 
   const totalPresentations = presentations.length
-  const totalSlides = presentations.reduce((acc, p) => acc + (p.slideCount || 0), 0)
+  // Historical slides generated based on usage, won't reset on deletion
+  const totalSlides = data?.creditsUsed || 0
 
   const recentActivity: ActivityItem[] = useMemo(
     () =>
@@ -151,8 +165,8 @@ export default function DashboardPage() {
 
   const activeJobsCount = 0
 
-  const creditsUsed = totalSlides
-  const creditsTotal = 200
+  const creditsUsed = data?.creditsUsed || 0
+  const creditsTotal = 50
   const creditsRemaining = Math.max(creditsTotal - creditsUsed, 0)
   const creditsProgress = Math.min((creditsUsed / creditsTotal) * 100, 100)
 
@@ -983,5 +997,13 @@ export default function DashboardPage() {
         />
       )}
     </div>
+  )
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-slate-50 dark:bg-black" />}>
+      <DashboardContent />
+    </Suspense>
   )
 }

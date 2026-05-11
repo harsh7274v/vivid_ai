@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
       language: p.language,
     }))
 
-    return NextResponse.json({ presentations })
+    return NextResponse.json({ presentations, creditsUsed: user.creditsUsed || 0 })
   } catch (error) {
     console.error('Failed to load presentations history:', error)
     return NextResponse.json(

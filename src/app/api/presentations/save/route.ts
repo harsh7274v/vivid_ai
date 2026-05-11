@@ -38,9 +38,12 @@ export async function POST(req: NextRequest) {
 
     const user = await prisma.user.upsert({
       where: { email: userEmail },
-      update: {},
+      update: {
+        creditsUsed: { increment: slides.length },
+      },
       create: {
         email: userEmail,
+        creditsUsed: slides.length,
       },
     })
 

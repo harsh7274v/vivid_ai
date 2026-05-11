@@ -25,7 +25,7 @@ export default function TemplateDetailPreview() {
           Template not found
         </h2>
         <button
-          onClick={() => router.back()}
+          onClick={() => router.push('/dashboard?view=templates')}
           className={`flex items-center gap-2 border px-4 py-2 rounded-full text-sm transition-colors ${
             theme === 'light'
               ? 'bg-white border-slate-200 hover:bg-slate-100 text-slate-700'
@@ -48,7 +48,7 @@ export default function TemplateDetailPreview() {
       }`}>
         <div className="max-w-7xl mx-auto px-4 py-5">
           <button
-            onClick={() => router.back()}
+            onClick={() => router.push('/dashboard?view=templates')}
             className={`flex items-center gap-2 text-xs md:text-sm border px-4 py-1.5 rounded-full transition-colors mb-4 ${
               theme === 'light'
                 ? 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
