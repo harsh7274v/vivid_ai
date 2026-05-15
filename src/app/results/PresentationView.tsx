@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import TiptapTextReplacer from '../../components/TiptapTextReplacer'
 import { ThemeSelector } from '../../components/ThemeSelector'
@@ -19,6 +19,7 @@ interface Slide {
 
 interface GeneratedSlide extends Slide {
   imageSrc: string | null
+  layoutIndex?: number
 }
 
 interface PresentationHistoryItem {
@@ -43,6 +44,7 @@ interface PresentationViewProps {
   buildSlideData: ((slide: GeneratedSlide, layoutIndex?: number) => any) | null
   templateLayouts?: TemplateWithData[] | null
   layoutIndices?: number[]
+  presentationId?: string | null
 }
 
 export default function PresentationView({
@@ -57,6 +59,7 @@ export default function PresentationView({
   buildSlideData,
   templateLayouts,
   layoutIndices,
+  presentationId,
 }: PresentationViewProps) {
   const router = useRouter()
   const { theme, toggleTheme } = useTheme()
@@ -71,6 +74,10 @@ export default function PresentationView({
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
   const [historyError, setHistoryError] = useState<string | null>(null)
   const [isRoutingToDashboard, setIsRoutingToDashboard] = useState(false)
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [uploadingSlideIndex, setUploadingSlideIndex] = useState<number | null>(null)
 
   useEffect(() => {
     setEditableSlides(generatedSlides)
@@ -88,15 +95,22 @@ export default function PresentationView({
   const currentSlide = editableSlides[safeIndex]
 
   const handleTitleChange = (index: number, newTitle: string) => {
+    const oldTitle = editableSlides[index]?.title
+    if (oldTitle === newTitle) return
+
     setEditableSlides((slides) => {
       const next = [...slides]
       if (!next[index]) return slides
       next[index] = { ...next[index], title: newTitle }
       return next
     })
+    setHasUnsavedChanges(true)
   }
 
   const handleBulletChange = (slideIndex: number, bulletIndex: number, newText: string) => {
+    const oldText = editableSlides[slideIndex]?.content[bulletIndex]
+    if (oldText === newText) return
+
     setEditableSlides((slides) => {
       const next = [...slides]
       const slide = next[slideIndex]
@@ -106,50 +120,140 @@ export default function PresentationView({
       next[slideIndex] = { ...slide, content }
       return next
     })
+    setHasUnsavedChanges(true)
   }
 
   const handleImageChange = (index: number) => {
-    if (!enableSelectEdit) return
-    const current = editableSlides[index]
-    if (!current) return
-    const url = window.prompt('Enter image URL', current.imageSrc ?? '')
-    if (!url) return
+    setUploadingSlideIndex(index)
+    fileInputRef.current?.click()
+  }
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || uploadingSlideIndex === null) return
+
+    try {
+      setIsSaving(true)
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      })
+      const data = await res.json()
+      if (data.url) {
+        setEditableSlides(prev => {
+          const next = [...prev]
+          next[uploadingSlideIndex] = { ...next[uploadingSlideIndex], imageSrc: data.url }
+          return next
+        })
+        setHasUnsavedChanges(true)
+      } else {
+        throw new Error(data.error || 'Upload failed')
+      }
+    } catch (err) {
+      console.error(err)
+      alert('Failed to upload image')
+    } finally {
+      setIsSaving(false)
+      setUploadingSlideIndex(null)
+      if (e.target) e.target.value = ''
+    }
+  }
+
+  const handleAddBullet = (slideIndex: number) => {
     setEditableSlides((slides) => {
       const next = [...slides]
-      if (!next[index]) return slides
-      next[index] = { ...next[index], imageSrc: url }
+      const slide = next[slideIndex]
+      if (!slide) return slides
+      const content = [...slide.content, "New point..."]
+      next[slideIndex] = { ...slide, content }
       return next
     })
+    setHasUnsavedChanges(true)
+  }
+
+  const handleDeleteBullet = (slideIndex: number, bulletIndex: number) => {
+    setEditableSlides((slides) => {
+      const next = [...slides]
+      const slide = next[slideIndex]
+      if (!slide) return slides
+      const content = slide.content.filter((_, i) => i !== bulletIndex)
+      next[slideIndex] = { ...slide, content }
+      return next
+    })
+    setHasUnsavedChanges(true)
+  }
+
+  const handleLayoutChange = (slideIndex: number) => {
+    if (!templateLayouts || templateLayouts.length === 0) return
+
+    setEditableSlides((slides) => {
+      const next = [...slides]
+      const slide = next[slideIndex]
+      if (!slide) return slides
+
+      // Calculate current layout index
+      let currentIndex = typeof slide.layoutIndex === 'number'
+        ? slide.layoutIndex
+        : (layoutIndices && typeof layoutIndices[slideIndex] === 'number'
+          ? layoutIndices[slideIndex]
+          : slideIndex % templateLayouts.length)
+
+      const nextIndex = (currentIndex + 1) % templateLayouts.length
+      next[slideIndex] = { ...slide, layoutIndex: nextIndex }
+      return next
+    })
+    setHasUnsavedChanges(true)
+  }
+
+  const handleSavePresentation = async () => {
+    if (!presentationId || isSaving) return
+    try {
+      setIsSaving(true)
+      const res = await fetch(`/api/presentations/${presentationId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          slides: editableSlides,
+        }),
+      })
+      if (!res.ok) throw new Error('Failed to update')
+      setHasUnsavedChanges(false)
+    } catch (err) {
+      console.error(err)
+      alert('Failed to save changes to the presentation')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleDeleteSlide = (index: number) => {
     if (!enableSelectEdit) return
-    setEditableSlides((slides) => {
-      if (slides.length <= 1) return slides
-      const next = [...slides]
-      next.splice(index, 1)
-      const reNumbered = next.map((s, i) => ({ ...s, number: i + 1 }))
-      const newIndex = Math.min(index, reNumbered.length - 1)
-      setActiveIndex(newIndex)
-      return reNumbered
-    })
+    if (editableSlides.length <= 1) return
+
+    const next = [...editableSlides]
+    next.splice(index, 1)
+    const reNumbered = next.map((s, i) => ({ ...s, number: i + 1 }))
+    setEditableSlides(reNumbered)
+
+    const newIndex = Math.min(index, reNumbered.length - 1)
+    setActiveIndex(newIndex)
   }
 
   const handleAddSlideBelow = (index: number) => {
     if (!enableSelectEdit) return
-    setEditableSlides((slides) => {
-      const next = [...slides]
-      const newSlide: GeneratedSlide = {
-        number: next.length + 1,
-        title: 'New slide',
-        content: ['New point'],
-        imageSrc: null,
-      }
-      next.splice(index + 1, 0, newSlide)
-      const reNumbered = next.map((s, i) => ({ ...s, number: i + 1 }))
-      setActiveIndex(index + 1)
-      return reNumbered
-    })
+    const next = [...editableSlides]
+    const newSlide: GeneratedSlide = {
+      number: next.length + 1,
+      title: 'New slide',
+      content: ['New point'],
+      imageSrc: null,
+    }
+    next.splice(index + 1, 0, newSlide)
+    const reNumbered = next.map((s, i) => ({ ...s, number: i + 1 }))
+    setEditableSlides(reNumbered)
+    setActiveIndex(index + 1)
   }
 
   const handleThemeUpdate = (theme: any) => {
@@ -366,34 +470,30 @@ export default function PresentationView({
   if (generatedSlides.length === 0) {
     return (
       <div
-        className={`min-h-screen flex flex-col items-center justify-center py-24 ${
-          theme === 'light'
+        className={`min-h-screen flex flex-col items-center justify-center py-24 ${theme === 'light'
             ? 'bg-slate-50 text-slate-900'
             : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 text-slate-50'
-        }`}
+          }`}
       >
         <div
-          className={`w-20 h-20 rounded-2xl flex items-center justify-center mb-6 shadow-lg ${
-            theme === 'light'
+          className={`w-20 h-20 rounded-2xl flex items-center justify-center mb-6 shadow-lg ${theme === 'light'
               ? 'bg-gradient-to-br from-indigo-500 to-purple-600'
               : 'bg-gradient-to-br from-slate-900 via-neutral-800 to-slate-700'
-          }`}
+            }`}
         >
           <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
           </svg>
         </div>
         <h3
-          className={`text-xl font-semibold mb-2 ${
-            theme === 'light' ? 'text-slate-800' : 'text-slate-50'
-          }`}
+          className={`text-xl font-semibold mb-2 ${theme === 'light' ? 'text-slate-800' : 'text-slate-50'
+            }`}
         >
           Ready to Generate
         </h3>
         <p
-          className={`text-sm mb-6 text-center max-w-md ${
-            theme === 'light' ? 'text-slate-500' : 'text-slate-300'
-          }`}
+          className={`text-sm mb-6 text-center max-w-md ${theme === 'light' ? 'text-slate-500' : 'text-slate-300'
+            }`}
         >
           {hasTemplate
             ? 'Click below to generate your presentation slides with the selected template.'
@@ -402,11 +502,10 @@ export default function PresentationView({
         <button
           onClick={onGenerate}
           disabled={isGenerating || !orderedSlides.length || !hasTemplate}
-          className={`px-8 py-3 rounded-full font-semibold shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none ${
-            theme === 'light'
+          className={`px-8 py-3 rounded-full font-semibold shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none ${theme === 'light'
               ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white'
               : 'bg-gradient-to-r from-slate-900 via-neutral-800 to-slate-700 text-slate-50'
-          }`}
+            }`}
         >
           {isGenerating ? (
             <span className="flex items-center gap-2">
@@ -426,725 +525,776 @@ export default function PresentationView({
 
   return (
     <>
-    <div
-      className={`fixed inset-0 z-50 flex flex-col ${
-        theme === 'light'
-          ? 'bg-slate-50 text-slate-900'
-          : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 text-slate-50'
-      }`}
-    >
-      {/* ─── Top Navbar ─── */}
-      <div className="px-4 pt-4 pb-0 shrink-0">
-        <header
-          className={`h-14 flex items-center px-4 gap-3 rounded-2xl shadow-sm border ${
-            theme === 'light'
-              ? 'bg-white border-slate-200 text-slate-800'
-              : 'bg-neutral-900/95 border-neutral-700 text-slate-50'
+      <div
+        className={`fixed inset-0 z-50 flex flex-col ${theme === 'light'
+            ? 'bg-slate-50 text-slate-900'
+            : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 text-slate-50'
           }`}
-        >
-          {/* Logo and title */}
-          <div
-            className="flex items-center gap-2 cursor-pointer"
-            onClick={() => router.push('/')}
+      >
+        {/* ─── Top Navbar ─── */}
+        <div className="px-4 pt-4 pb-0 shrink-0">
+          <header
+            className={`h-14 flex items-center px-4 gap-3 rounded-2xl shadow-sm border ${theme === 'light'
+                ? 'bg-white border-slate-200 text-slate-800'
+                : 'bg-neutral-900/95 border-neutral-700 text-slate-50'
+              }`}
           >
+            {/* Logo and title */}
             <div
-              className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                theme === 'light' ? 'bg-black text-white' : 'bg-white text-black'
-              }`}
+              className="flex items-center gap-2 cursor-pointer"
+              onClick={() => router.push('/')}
             >
-              <span className="font-bold text-sm">V</span>
+              <div
+                className={`w-8 h-8 rounded-lg flex items-center justify-center ${theme === 'light' ? 'bg-black text-white' : 'bg-white text-black'
+                  }`}
+              >
+                <span className="font-bold text-sm">V</span>
+              </div>
+              <div className="flex flex-col leading-tight">
+                <span className="font-bold text-lg tracking-tight">
+                  vivid Ai
+                </span>
+                <span
+                  className={`text-[11px] -mt-0.5 ${theme === 'light' ? 'text-slate-500' : 'text-slate-300'
+                    }`}
+                >
+                  Convert Input into Structured Insights
+                </span>
+              </div>
             </div>
-            <div className="flex flex-col leading-tight">
-              <span className="font-bold text-lg tracking-tight">
-                vivid Ai
-              </span>
-              <span
-                className={`text-[11px] -mt-0.5 ${
-                  theme === 'light' ? 'text-slate-500' : 'text-slate-300'
+
+            {/* Divider */}
+            <div className="w-px h-6 bg-slate-200 mx-3" />
+
+            {/* Title */}
+            <span
+              className={`text-sm truncate max-w-[280px] ${theme === 'light' ? 'text-slate-600' : 'text-slate-300'
                 }`}
+            >
+              {currentSlide?.title || 'Untitled Presentation'}
+            </span>
+
+            {/* Spacer */}
+            <div className="flex-1" />
+
+            {/* Global light/dark toggle */}
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className={`mr-2 flex items-center justify-center w-9 h-9 rounded-full border text-xs transition-colors ${theme === 'light'
+                  ? 'border-slate-200 text-slate-600 hover:bg-slate-100'
+                  : 'border-slate-600 text-slate-200 hover:bg-neutral-800'
+                }`}
+              aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+            >
+              {theme === 'light' ? (
+                // Moon icon
+                <svg
+                  className="w-4 h-4"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
+                  <path d="M17.293 13.293A8 8 0 016.707 2.707 6 6 0 1017.293 13.293z" />
+                </svg>
+              ) : (
+                // Sun icon
+                <svg
+                  className="w-4 h-4"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
+                  <path d="M10 3.5a1 1 0 011-1h.01a1 1 0 010 2H11a1 1 0 01-1-1zm0 11a1 1 0 011-1h.01a1 1 0 010 2H11a1 1 0 01-1-1zM4.222 5.636a1 1 0 011.414-1.414l.008.008a1 1 0 01-1.414 1.414l-.008-.008zm9.142 9.142a1 1 0 011.414-1.414l.008.008a1 1 0 01-1.414 1.414l-.008-.008zM3.5 11a1 1 0 011-1H4.51a1 1 0 010 2H4.5a1 1 0 01-1-1zm11 0a1 1 0 011-1h.01a1 1 0 010 2H15.5a1 1 0 01-1-1zM4.222 14.364a1 1 0 011.414 0l.008.008a1 1 0 01-1.414 1.414l-.008-.008a1 1 0 010-1.414zm9.142-9.142a1 1 0 011.414 0l.008.008a1 1 0 01-1.414 1.414l-.008-.008a1 1 0 010-1.414zM10 6a4 4 0 100 8 4 4 0 000-8z" />
+                </svg>
+              )}
+            </button>
+
+            {/* Theme for export / template visuals */}
+            <ThemeSelector currentThemeId={currentThemeId} onThemeUpdate={handleThemeUpdate} />
+
+            {/* Enable Select Edit Toggle */}
+            <div
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-full ${theme === 'light'
+                  ? 'bg-emerald-50 text-emerald-700'
+                  : 'bg-emerald-900/40 text-emerald-200'
+                }`}
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
               >
-                Convert Input into Structured Insights
-              </span>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              <span className="text-xs font-medium">Enable Select Edit</span>
+              <button
+                onClick={() => setEnableSelectEdit(!enableSelectEdit)}
+                className={`relative w-10 h-5 rounded-full transition-colors ${enableSelectEdit ? 'bg-emerald-500' : 'bg-slate-300'}`}
+              >
+                <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${enableSelectEdit ? 'left-5' : 'left-0.5'}`} />
+              </button>
             </div>
-          </div>
 
-          {/* Divider */}
-          <div className="w-px h-6 bg-slate-200 mx-3" />
-
-          {/* Title */}
-          <span
-            className={`text-sm truncate max-w-[280px] ${
-              theme === 'light' ? 'text-slate-600' : 'text-slate-300'
-            }`}
-          >
-            {currentSlide?.title || 'Untitled Presentation'}
-          </span>
-
-          {/* Spacer */}
-          <div className="flex-1" />
-
-          {/* Global light/dark toggle */}
-          <button
-            type="button"
-            onClick={toggleTheme}
-            className={`mr-2 flex items-center justify-center w-9 h-9 rounded-full border text-xs transition-colors ${
-              theme === 'light'
-                ? 'border-slate-200 text-slate-600 hover:bg-slate-100'
-                : 'border-slate-600 text-slate-200 hover:bg-neutral-800'
-            }`}
-            aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
-          >
-            {theme === 'light' ? (
-              // Moon icon
-              <svg
-                className="w-4 h-4"
-                fill="currentColor"
-                viewBox="0 0 20 20"
+            {/* Undo / Redo */}
+            <div className="flex items-center gap-1">
+              <button
+                className={`p-1.5 rounded-lg transition ${theme === 'light'
+                    ? 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                    : 'text-slate-300 hover:text-slate-100 hover:bg-neutral-800'
+                  }`}
               >
-                <path d="M17.293 13.293A8 8 0 016.707 2.707 6 6 0 1017.293 13.293z" />
-              </svg>
-            ) : (
-              // Sun icon
-              <svg
-                className="w-4 h-4"
-                fill="currentColor"
-                viewBox="0 0 20 20"
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a5 5 0 015 5v2M3 10l4-4M3 10l4 4" />
+                </svg>
+              </button>
+              <button
+                className={`p-1.5 rounded-lg transition ${theme === 'light'
+                    ? 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                    : 'text-slate-300 hover:text-slate-100 hover:bg-neutral-800'
+                  }`}
               >
-                <path d="M10 3.5a1 1 0 011-1h.01a1 1 0 010 2H11a1 1 0 01-1-1zm0 11a1 1 0 011-1h.01a1 1 0 010 2H11a1 1 0 01-1-1zM4.222 5.636a1 1 0 011.414-1.414l.008.008a1 1 0 01-1.414 1.414l-.008-.008zm9.142 9.142a1 1 0 011.414-1.414l.008.008a1 1 0 01-1.414 1.414l-.008-.008zM3.5 11a1 1 0 011-1H4.51a1 1 0 010 2H4.5a1 1 0 01-1-1zm11 0a1 1 0 011-1h.01a1 1 0 010 2H15.5a1 1 0 01-1-1zM4.222 14.364a1 1 0 011.414 0l.008.008a1 1 0 01-1.414 1.414l-.008-.008a1 1 0 010-1.414zm9.142-9.142a1 1 0 011.414 0l.008.008a1 1 0 01-1.414 1.414l-.008-.008a1 1 0 010-1.414zM10 6a4 4 0 100 8 4 4 0 000-8z" />
-              </svg>
-            )}
-          </button>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 10H11a5 5 0 00-5 5v2m15-7l-4-4m4 4l-4 4" />
+                </svg>
+              </button>
+            </div>
 
-          {/* Theme for export / template visuals */}
-          <ThemeSelector currentThemeId={currentThemeId} onThemeUpdate={handleThemeUpdate} />
-
-          {/* Enable Select Edit Toggle */}
-          <div
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-full ${
-              theme === 'light'
-                ? 'bg-emerald-50 text-emerald-700'
-                : 'bg-emerald-900/40 text-emerald-200'
-            }`}
-          >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-            <span className="text-xs font-medium">Enable Select Edit</span>
+            {/* Present */}
             <button
-              onClick={() => setEnableSelectEdit(!enableSelectEdit)}
-              className={`relative w-10 h-5 rounded-full transition-colors ${enableSelectEdit ? 'bg-emerald-500' : 'bg-slate-300'}`}
-            >
-              <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${enableSelectEdit ? 'left-5' : 'left-0.5'}`} />
-            </button>
-          </div>
-
-          {/* Undo / Redo */}
-          <div className="flex items-center gap-1">
-            <button
-              className={`p-1.5 rounded-lg transition ${
-                theme === 'light'
-                  ? 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
-                  : 'text-slate-300 hover:text-slate-100 hover:bg-neutral-800'
-              }`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a5 5 0 015 5v2M3 10l4-4M3 10l4 4" />
-              </svg>
-            </button>
-            <button
-              className={`p-1.5 rounded-lg transition ${
-                theme === 'light'
-                  ? 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
-                  : 'text-slate-300 hover:text-slate-100 hover:bg-neutral-800'
-              }`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 10H11a5 5 0 00-5 5v2m15-7l-4-4m4 4l-4 4" />
-              </svg>
-            </button>
-          </div>
-
-          {/* Present */}
-          <button
-            onClick={() => setIsPresentMode(true)}
-            className={`flex items-center gap-1.5 px-4 py-1.5 font-medium text-sm rounded-lg transition border ${
-              theme === 'light'
-                ? 'border-indigo-200 text-indigo-600 hover:bg-indigo-50'
-                : 'border-indigo-400/60 text-indigo-300 hover:bg-indigo-500/10'
-            }`}
-          >
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
-            </svg>
-            Present
-          </button>
-
-          {/* Export */}
-          <button
-            onClick={handleExportPptx}
-            className={`flex items-center gap-1.5 px-4 py-1.5 font-medium text-sm rounded-lg transition border ${
-              theme === 'light'
-                ? 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                : 'border-slate-500 text-slate-200 hover:bg-neutral-800'
-            }`}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-            </svg>
-            Export
-          </button>
-
-          {/* Dashboard */}
-          <button
-            onClick={() => setIsRoutingToDashboard(true)}
-            className={`flex items-center gap-1.5 px-4 py-1.5 font-medium text-sm rounded-lg transition border ${
-              theme === 'light'
-                ? 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                : 'border-slate-500 text-slate-200 hover:bg-neutral-800'
-            }`}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-            </svg>
-            Dashboard
-          </button>
-        </header>
-      </div>
-
-      {/* ─── Body ─── */}
-      <div className="flex flex-1 overflow-hidden px-4 pt-4 pb-4 relative">
-        {/* ─── Left Sidebar ─── */}
-        {isSidebarOpen ? (
-          <aside
-            className={`w-[272px] flex flex-col shrink-0 pt-4 pl-4 pr-3 pb-4 rounded-2xl border-r ${
-              theme === 'light'
-                ? 'bg-white border-slate-200'
-                : 'bg-neutral-900/90 border-neutral-800'
-            }`}
-          >
-          {/* Sidebar header */}
-          <div
-            className={`flex items-center gap-2 px-3 py-3 border-b ${
-              theme === 'light' ? 'border-slate-100' : 'border-neutral-800'
-            }`}
-          >
-            <button
-              onClick={() => setSidebarView('grid')}
-              className={`p-1.5 rounded-lg transition ${
-                sidebarView === 'grid'
-                  ? 'bg-slate-900 text-white'
-                  : theme === 'light'
-                  ? 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
-                  : 'text-slate-300 hover:text-slate-50 hover:bg-neutral-800'
-              }`}
+              onClick={() => setIsPresentMode(true)}
+              className={`flex items-center gap-1.5 px-4 py-1.5 font-medium text-sm rounded-lg transition border ${theme === 'light'
+                  ? 'border-indigo-200 text-indigo-600 hover:bg-indigo-50'
+                  : 'border-indigo-400/60 text-indigo-300 hover:bg-indigo-500/10'
+                }`}
             >
               <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM11 13a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
               </svg>
+              Present
             </button>
-            <button
-              onClick={() => setSidebarView('list')}
-              className={`p-1.5 rounded-lg transition ${
-                sidebarView === 'list'
-                  ? 'bg-slate-900 text-white'
-                  : theme === 'light'
-                  ? 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
-                  : 'text-slate-300 hover:text-slate-50 hover:bg-neutral-800'
-              }`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-            </button>
-            <span
-              className={`text-sm ml-1 ${
-                theme === 'light' ? 'text-slate-500' : 'text-slate-300'
-              }`}
-            >
-              ({editableSlides.length})
-            </span>
-            <div className="flex-1" />
-            <button
-              onClick={() => setIsSidebarOpen(false)}
-              className={`p-1.5 rounded-lg transition ${
-                theme === 'light'
-                  ? 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
-                  : 'text-slate-300 hover:text-slate-50 hover:bg-neutral-800'
-              }`}
-              aria-label="Close slide list"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
 
-          {/* Slide list / thumbnails */}
-          <div className="flex-1 overflow-y-auto mt-4 space-y-3 pr-1">
-            {sidebarView === 'list'
-              ? editableSlides.map((slide, index) => (
-                  <button
-                    key={slide.number}
-                    type="button"
-                    onClick={() => {
-                      setActiveIndex(index)
-                      scrollToSlide(index)
-                    }}
-                    className={`w-full text-left rounded-2xl border-2 px-5 py-4 text-base font-semibold tracking-tight transition-all ${
-                      index === safeIndex
+            {/* Export */}
+            <button
+              onClick={handleExportPptx}
+              className={`flex items-center gap-1.5 px-4 py-1.5 font-medium text-sm rounded-lg transition border ${theme === 'light'
+                  ? 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                  : 'border-slate-500 text-slate-200 hover:bg-neutral-800'
+                }`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+              </svg>
+              Export
+            </button>
+
+            {/* Dashboard */}
+            <button
+              onClick={() => setIsRoutingToDashboard(true)}
+              className={`flex items-center gap-1.5 px-4 py-1.5 font-medium text-sm rounded-lg transition border ${theme === 'light'
+                  ? 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                  : 'border-slate-500 text-slate-200 hover:bg-neutral-800'
+                }`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+              </svg>
+              Dashboard
+            </button>
+          </header>
+        </div>
+
+        {/* ─── Body ─── */}
+        <div className="flex flex-1 overflow-hidden px-4 pt-4 pb-4 relative">
+          {/* ─── Left Sidebar ─── */}
+          {isSidebarOpen ? (
+            <aside
+              className={`w-[272px] flex flex-col shrink-0 pt-4 pl-4 pr-3 pb-4 rounded-2xl border-r ${theme === 'light'
+                  ? 'bg-white border-slate-200'
+                  : 'bg-neutral-900/90 border-neutral-800'
+                }`}
+            >
+              {/* Sidebar header */}
+              <div
+                className={`flex items-center gap-2 px-3 py-3 border-b ${theme === 'light' ? 'border-slate-100' : 'border-neutral-800'
+                  }`}
+              >
+                <button
+                  onClick={() => setSidebarView('grid')}
+                  className={`p-1.5 rounded-lg transition ${sidebarView === 'grid'
+                      ? 'bg-slate-900 text-white'
+                      : theme === 'light'
+                        ? 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                        : 'text-slate-300 hover:text-slate-50 hover:bg-neutral-800'
+                    }`}
+                >
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM11 13a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => setSidebarView('list')}
+                  className={`p-1.5 rounded-lg transition ${sidebarView === 'list'
+                      ? 'bg-slate-900 text-white'
+                      : theme === 'light'
+                        ? 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                        : 'text-slate-300 hover:text-slate-50 hover:bg-neutral-800'
+                    }`}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                  </svg>
+                </button>
+                <span
+                  className={`text-sm ml-1 ${theme === 'light' ? 'text-slate-500' : 'text-slate-300'
+                    }`}
+                >
+                  ({editableSlides.length})
+                </span>
+                <div className="flex-1" />
+                <button
+                  onClick={() => setIsSidebarOpen(false)}
+                  className={`p-1.5 rounded-lg transition ${theme === 'light'
+                      ? 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                      : 'text-slate-300 hover:text-slate-50 hover:bg-neutral-800'
+                    }`}
+                  aria-label="Close slide list"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Slide list / thumbnails */}
+              <div className="flex-1 overflow-y-auto mt-4 space-y-3 pr-1">
+                {sidebarView === 'list'
+                  ? editableSlides.map((slide, index) => (
+                    <button
+                      key={slide.number}
+                      type="button"
+                      onClick={() => {
+                        setActiveIndex(index)
+                        scrollToSlide(index)
+                      }}
+                      className={`w-full text-left rounded-2xl border-2 px-5 py-4 text-base font-semibold tracking-tight transition-all ${index === safeIndex
                           ? theme === 'light'
                             ? 'border-violet-500 text-slate-900 shadow-[0_0_0_1px_rgba(124,58,237,0.25)] bg-white'
                             : 'border-violet-400 text-slate-50 shadow-[0_0_0_1px_rgba(129,140,248,0.4)] bg-neutral-900'
                           : theme === 'light'
-                          ? 'border-slate-200 text-slate-900 hover:border-slate-300 bg-white'
-                          : 'border-neutral-700 text-slate-200 hover:border-neutral-500 bg-neutral-900'
-                    }`}
-                  >
-                    {`Slide ${index + 1}`}
-                  </button>
-                ))
-              : editableSlides.map((slide, index) => (
-                  <button
-                    key={slide.number}
-                    type="button"
-                    onClick={() => {
-                      setActiveIndex(index)
-                      scrollToSlide(index)
-                    }}
-                    className={`w-full text-left rounded-xl border-2 transition-all overflow-hidden ${
-                      index === safeIndex
+                            ? 'border-slate-200 text-slate-900 hover:border-slate-300 bg-white'
+                            : 'border-neutral-700 text-slate-200 hover:border-neutral-500 bg-neutral-900'
+                        }`}
+                    >
+                      {`Slide ${index + 1}`}
+                    </button>
+                  ))
+                  : editableSlides.map((slide, index) => (
+                    <button
+                      key={slide.number}
+                      type="button"
+                      onClick={() => {
+                        setActiveIndex(index)
+                        scrollToSlide(index)
+                      }}
+                      className={`w-full text-left rounded-xl border-2 transition-all overflow-hidden ${index === safeIndex
                           ? theme === 'light'
                             ? 'border-indigo-500 shadow-md shadow-indigo-100'
                             : 'border-indigo-400 shadow-md shadow-indigo-900/40'
                           : theme === 'light'
-                          ? 'border-slate-200 hover:border-slate-300 hover:shadow-sm'
-                          : 'border-neutral-700 hover:border-neutral-500 hover:shadow-sm'
-                    }`}
-                  >
-                    {/* Thumbnail preview */}
-                    <div
-                      className={`relative aspect-[16/9] overflow-hidden ${
-                        theme === 'light' ? 'bg-slate-50' : 'bg-neutral-900'
-                      }`}
+                            ? 'border-slate-200 hover:border-slate-300 hover:shadow-sm'
+                            : 'border-neutral-700 hover:border-neutral-500 hover:shadow-sm'
+                        }`}
                     >
-                      {LayoutComponent && buildSlideData ? (
-                        <div className="absolute inset-0 bg-transparent z-10" />
-                      ) : null}
-                      {slide.imageSrc ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={slide.imageSrc}
-                          alt={`Slide ${slide.number}`}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <div
-                          className={`w-full h-full flex items-center justify-center bg-gradient-to-br ${
-                            theme === 'light'
-                              ? 'from-slate-100 to-slate-200'
-                              : 'from-neutral-800 to-neutral-900'
+                      {/* Thumbnail preview */}
+                      <div
+                        className={`relative aspect-[16/9] overflow-hidden ${theme === 'light' ? 'bg-slate-50' : 'bg-neutral-900'
                           }`}
-                        >
-                          <span
-                            className={`text-3xl font-bold ${
-                              theme === 'light' ? 'text-slate-300' : 'text-neutral-600'
-                            }`}
-                          >
-                            {slide.number}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                    {/* Slide info */}
-                    <div className="p-2.5">
-                      <div
-                        className={`font-semibold text-xs truncate ${
-                          theme === 'light' ? 'text-slate-800' : 'text-slate-100'
-                        }`}
                       >
-                        {slide.title}
-                      </div>
-                      <div
-                        className={`text-[10px] mt-0.5 line-clamp-2 leading-tight ${
-                          theme === 'light' ? 'text-slate-500' : 'text-slate-400'
-                        }`}
-                      >
-                        {slide.content.join(' · ')}
-                      </div>
-                    </div>
-                  </button>
-                ))}
-          </div>
-        </aside>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setIsSidebarOpen(true)}
-            className={`absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-2xl border shadow-md flex items-center justify-center hover:shadow-lg transition z-20 ${
-              theme === 'light'
-                ? 'bg-white border-slate-200 hover:border-slate-300'
-                : 'bg-neutral-900 border-neutral-700 hover:border-neutral-500'
-            }`}
-            aria-label="Open slide list"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          </button>
-        )}
-
-        {/* ─── Main Content ─── */}
-        <main className="flex-1 flex flex-col overflow-hidden relative">
-          {/* Slide display area */}
-          <div className="flex-1 overflow-auto p-6">
-            <div
-              id="presentation-slides-wrapper"
-              className="w-full max-w-[1120px] mx-auto flex flex-col gap-24"
-            >
-              {editableSlides.map((slide, index) => {
-                const isActive = index === safeIndex
-
-                return (
-                  <div
-                    key={slide.number}
-                    id={`main-slide-${index}`}
-                    className="group relative shadow-2xl border aspect-[16/9] overflow-auto rounded-none"
-                    style={{
-                      backgroundColor:
-                        theme === 'light'
-                          ? 'var(--background-color, #ffffff)'
-                          : 'var(--background-color, #020617)',
-                      borderColor:
-                        theme === 'light'
-                          ? 'var(--stroke, #E5E5E5)'
-                          : 'var(--stroke, #1f2937)',
-                      color:
-                        theme === 'light'
-                          ? 'var(--background-text, #0f172a)'
-                          : 'var(--background-text, #e5e7eb)',
-                      fontFamily: 'var(--body-font-family, inherit)',
-                    }}
-                  >
-                    {/* In-slide controls (only visible in edit mode on hover for active slide) */}
-                    {enableSelectEdit && isActive && (
-                      <>
-                        <div className="pointer-events-none absolute inset-x-4 top-4 flex items-center justify-between z-20 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-indigo-600 text-white text-sm shadow-md hover:bg-indigo-700 transition">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                            </svg>
-                            Edit slide
-                          </button>
-                          <div className="pointer-events-auto flex items-center gap-2">
-                            <button
-                              className={`flex items-center gap-1.5 px-3 py-1.5 bg-white/90 backdrop-blur border rounded-full text-xs shadow-sm transition ${
-                                theme === 'light'
-                                  ? 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                                  : 'border-neutral-700 text-slate-800 hover:bg-slate-100'
+                        {LayoutComponent && buildSlideData ? (
+                          <div className="absolute inset-0 bg-transparent z-10" />
+                        ) : null}
+                        {slide.imageSrc ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={slide.imageSrc}
+                            alt={`Slide ${slide.number}`}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div
+                            className={`w-full h-full flex items-center justify-center bg-gradient-to-br ${theme === 'light'
+                                ? 'from-slate-100 to-slate-200'
+                                : 'from-neutral-800 to-neutral-900'
                               }`}
-                            >
-                              <svg className="w-4 h-4 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-                              </svg>
-                              AI edit
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteSlide(index)}
-                              className={`p-2 bg-white/90 backdrop-blur border rounded-full shadow-sm transition ${
-                                theme === 'light'
-                                  ? 'border-slate-200 text-slate-400 hover:text-red-500 hover:border-red-200'
-                                  : 'border-neutral-700 text-slate-700 hover:text-red-500 hover:border-red-300'
-                              }`}
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Add slide button at bottom center on hover */}
-                        <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center z-20 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button
-                            type="button"
-                            onClick={() => handleAddSlideBelow(index)}
-                            className={`pointer-events-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs shadow-sm transition ${
-                              theme === 'light'
-                                ? 'bg-white/95 border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
-                                : 'bg-neutral-900/95 border-neutral-700 text-slate-100 hover:bg-neutral-800 hover:border-neutral-500'
-                            }`}
                           >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                            </svg>
-                            Add slide below
-                          </button>
-                        </div>
-                      </>
-                    )}
-
-                    {(templateLayouts && templateLayouts.length && buildSlideData) || (LayoutComponent && buildSlideData) ? (
-                      <div className="w-full h-full">
-                        {(() => {
-                          const hasLayouts = templateLayouts && templateLayouts.length > 0
-                          let layoutIndex = hasLayouts ? index % (templateLayouts as TemplateWithData[]).length : 0
-
-                          // If AI-selected layout indices are provided, prefer them
-                          if (hasLayouts && layoutIndices && typeof layoutIndices[index] === 'number') {
-                            const rawIndex = layoutIndices[index] as number
-                            const maxIndex = (templateLayouts as TemplateWithData[]).length - 1
-                            if (rawIndex >= 0 && rawIndex <= maxIndex) {
-                              layoutIndex = rawIndex
-                            }
-                          }
-                          const EffectiveLayoutComponent = hasLayouts
-                            ? (templateLayouts as TemplateWithData[])[layoutIndex].component
-                            : LayoutComponent
-                          const slideData = buildSlideData ? buildSlideData(slide, layoutIndex) : null
-
-                          if (!EffectiveLayoutComponent || !slideData) return null
-
-                          return enableSelectEdit ? (
-                            <TiptapTextReplacer
-                              slideData={slideData}
-                              slideIndex={index}
-                              onContentChange={handleRichTextChange}
-                            >
-                              <EffectiveLayoutComponent data={slideData} />
-                            </TiptapTextReplacer>
-                          ) : (
-                            <EffectiveLayoutComponent data={slideData} />
-                          )
-                        })()}
-                      </div>
-                    ) : (
-                      /* Fallback: rich card layout (used for neo-general) */
-                      <div className="w-full h-full grid md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] items-stretch">
-                        {/* Image side */}
-                        <div
-                          className="flex items-center justify-center p-8 h-full"
-                          onClick={() => enableSelectEdit && handleImageChange(index)}
-                        >
-                          {slide.imageSrc ? (
-                            <div className={`w-full max-w-xl h-full ${enableSelectEdit ? 'cursor-pointer' : ''}`}>
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={slide.imageSrc}
-                                alt={`Slide ${slide.number}`}
-                                className="w-full h-full object-cover rounded-2xl shadow-sm border"
-                                style={{ borderColor: 'var(--stroke, #E5E5E5)' }}
-                              />
-                            </div>
-                          ) : (
-                            <div
-                              className={`text-5xl font-bold opacity-30 ${
-                                enableSelectEdit ? 'cursor-pointer' : ''
-                              } ${theme === 'light' ? 'text-slate-400' : 'text-slate-200'}`}
+                            <span
+                              className={`text-3xl font-bold ${theme === 'light' ? 'text-slate-300' : 'text-neutral-600'
+                                }`}
                             >
                               {slide.number}
-                            </div>
-                          )}
-                        </div>
-                        {/* Content side */}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      {/* Slide info */}
+                      <div className="p-2.5">
                         <div
-                          className="p-10 flex flex-col justify-center"
-                          style={{
-                            color:
-                              theme === 'light'
-                                ? 'var(--background-text, #0f172a)'
-                                : 'var(--background-text, #f9fafb)',
-                          }}
+                          className={`font-semibold text-xs truncate ${theme === 'light' ? 'text-slate-800' : 'text-slate-100'
+                            }`}
                         >
-                          <h2
-                            className="text-3xl md:text-4xl font-bold tracking-tight mb-3 leading-tight outline-none"
-                            contentEditable={enableSelectEdit}
-                            suppressContentEditableWarning
-                            onBlur={(e) =>
-                              handleTitleChange(index, e.currentTarget.textContent ? e.currentTarget.textContent.trim() : '')
+                          {slide.title}
+                        </div>
+                        <div
+                          className={`text-[10px] mt-0.5 line-clamp-2 leading-tight ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'
+                            }`}
+                        >
+                          {slide.content.join(' · ')}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+              </div>
+            </aside>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsSidebarOpen(true)}
+              className={`absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-2xl border shadow-md flex items-center justify-center hover:shadow-lg transition z-20 ${theme === 'light'
+                  ? 'bg-white border-slate-200 hover:border-slate-300'
+                  : 'bg-neutral-900 border-neutral-700 hover:border-neutral-500'
+                }`}
+              aria-label="Open slide list"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+          )}
+
+          {/* ─── Main Content ─── */}
+          <main className="flex-1 flex flex-col overflow-hidden relative">
+            {/* Slide display area */}
+            <div className="flex-1 overflow-auto p-6">
+              <div
+                id="presentation-slides-wrapper"
+                className="w-full max-w-[1120px] mx-auto flex flex-col gap-24"
+              >
+                {editableSlides.map((slide, index) => {
+                  const isActive = index === safeIndex
+
+                  return (
+                    <div
+                      key={slide.number}
+                      id={`main-slide-${index}`}
+                      className="group relative shadow-2xl border aspect-[16/9] overflow-auto rounded-none"
+                      style={{
+                        backgroundColor:
+                          theme === 'light'
+                            ? 'var(--background-color, #ffffff)'
+                            : 'var(--background-color, #020617)',
+                        borderColor:
+                          theme === 'light'
+                            ? 'var(--stroke, #E5E5E5)'
+                            : 'var(--stroke, #1f2937)',
+                        color:
+                          theme === 'light'
+                            ? 'var(--background-text, #0f172a)'
+                            : 'var(--background-text, #e5e7eb)',
+                        fontFamily: 'var(--body-font-family, inherit)',
+                      }}
+                    >
+                      {/* In-slide controls (only visible in edit mode on hover for active slide) */}
+                      {isActive && (
+                        <>
+                          <div className="pointer-events-none absolute inset-x-4 top-4 flex items-center justify-between z-20 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              onClick={() => setEnableSelectEdit(true)}
+                              className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-indigo-600 text-white text-sm shadow-md hover:bg-indigo-700 transition"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                              </svg>
+                              Edit slide
+                            </button>
+                            <div className="pointer-events-auto flex items-center gap-2">
+                              {presentationId && (
+                                <button
+                                  onClick={handleSavePresentation}
+                                  disabled={!hasUnsavedChanges || isSaving}
+                                  className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-white text-sm shadow-md transition ${hasUnsavedChanges
+                                      ? 'bg-emerald-600 hover:bg-emerald-700'
+                                      : 'bg-slate-400 cursor-not-allowed opacity-70'
+                                    }`}
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                                  </svg>
+                                  {isSaving ? 'Saving...' : 'Save'}
+                                </button>
+                              )}
+                              {templateLayouts && templateLayouts.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleLayoutChange(index)}
+                                  className={`flex items-center gap-1.5 px-3 py-1.5 bg-white/90 backdrop-blur border rounded-full text-xs shadow-sm transition ${theme === 'light'
+                                      ? 'border-slate-200 text-slate-600 hover:bg-indigo-50 hover:text-indigo-600'
+                                      : 'border-neutral-700 text-slate-800 hover:bg-neutral-800 hover:text-indigo-400'
+                                    }`}
+                                  title="Change layout"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
+                                  </svg>
+                                  Layout
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteSlide(index)}
+                                className={`p-2 bg-white/90 backdrop-blur border rounded-full shadow-sm transition ${theme === 'light'
+                                    ? 'border-slate-200 text-slate-400 hover:text-red-500 hover:border-red-200'
+                                    : 'border-neutral-700 text-slate-700 hover:text-red-500 hover:border-red-300'
+                                  }`}
+                                title="Delete slide"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Add slide button at bottom center on hover */}
+                          <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center z-20 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              type="button"
+                              onClick={() => handleAddSlideBelow(index)}
+                              className={`pointer-events-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs shadow-sm transition ${theme === 'light'
+                                  ? 'bg-white/95 border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                                  : 'bg-neutral-900/95 border-neutral-700 text-slate-100 hover:bg-neutral-800 hover:border-neutral-500'
+                                }`}
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                              </svg>
+                              Add slide below
+                            </button>
+                          </div>
+                        </>
+                      )}
+
+                      {(templateLayouts && templateLayouts.length && buildSlideData) || (LayoutComponent && buildSlideData) ? (
+                        <div className="w-full h-full">
+                          {(() => {
+                            const hasLayouts = templateLayouts && templateLayouts.length > 0
+                            let layoutIndex = hasLayouts ? index % (templateLayouts as TemplateWithData[]).length : 0
+
+                            // If AI-selected layout indices are provided, prefer them
+                            if (hasLayouts && layoutIndices && typeof layoutIndices[index] === 'number') {
+                              const rawIndex = layoutIndices[index] as number
+                              const maxIndex = (templateLayouts as TemplateWithData[]).length - 1
+                              if (rawIndex >= 0 && rawIndex <= maxIndex) {
+                                layoutIndex = rawIndex
+                              }
                             }
-                          >
-                            {slide.title}
-                          </h2>
+                            const EffectiveLayoutComponent = hasLayouts
+                              ? (templateLayouts as TemplateWithData[])[layoutIndex].component
+                              : LayoutComponent
+                            const slideData = buildSlideData ? buildSlideData(slide, layoutIndex) : null
+
+                            if (!EffectiveLayoutComponent || !slideData) return null
+
+                            return enableSelectEdit ? (
+                              <TiptapTextReplacer
+                                slideData={slideData}
+                                slideIndex={index}
+                                onContentChange={handleRichTextChange}
+                              >
+                                <EffectiveLayoutComponent data={slideData} />
+                              </TiptapTextReplacer>
+                            ) : (
+                              <EffectiveLayoutComponent data={slideData} />
+                            )
+                          })()}
+                        </div>
+                      ) : (
+                        /* Fallback: rich card layout (used for neo-general) */
+                        <div className="w-full h-full grid md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] items-stretch">
+                          {/* Image side */}
                           <div
-                            className="w-20 h-1.5 rounded-full mb-6"
-                            style={{ background: 'var(--primary-color, #6366f1)' }}
-                          />
-                          <div className="space-y-4 text-base md:text-lg leading-relaxed">
-                            {slide.content.map((point, idx) => (
-                              <div key={idx} className="flex items-start gap-3">
-                                <div
-                                  className="mt-2 w-2.5 h-2.5 rounded-full flex-shrink-0"
+                            className="flex items-center justify-center p-8 h-full"
+                          >
+                            {slide.imageSrc ? (
+                              <div className="relative group/image w-full max-w-xl h-full">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={slide.imageSrc}
+                                  alt={`Slide ${slide.number}`}
+                                  className="w-full h-full object-cover rounded-2xl shadow-sm border"
+                                  style={{ borderColor: 'var(--stroke, #E5E5E5)' }}
+                                />
+                                {enableSelectEdit && (
+                                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/image:opacity-100 transition-opacity rounded-2xl flex items-center justify-center gap-3">
+                                    <button
+                                      onClick={() => handleImageChange(index)}
+                                      className="p-2.5 bg-white rounded-full text-indigo-600 hover:bg-indigo-50 transition shadow-lg"
+                                      title="Replace Image"
+                                    >
+                                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                      </svg>
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setEditableSlides(prev => {
+                                          const next = [...prev]
+                                          next[index] = { ...next[index], imageSrc: '' }
+                                          return next
+                                        })
+                                        setHasUnsavedChanges(true)
+                                      }}
+                                      className="p-2.5 bg-white rounded-full text-red-600 hover:bg-red-50 transition shadow-lg"
+                                      title="Remove Image"
+                                    >
+                                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                      </svg>
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div
+                                onClick={() => enableSelectEdit && handleImageChange(index)}
+                                className={`text-5xl font-bold opacity-30 flex flex-col items-center gap-4 ${enableSelectEdit ? 'cursor-pointer hover:opacity-60 transition-opacity' : ''
+                                  } ${theme === 'light' ? 'text-slate-400' : 'text-slate-200'}`}
+                              >
+                                {enableSelectEdit && (
+                                  <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                  </svg>
+                                )}
+                                <span>{slide.number}</span>
+                              </div>
+                            )}
+                          </div>
+                          {/* Content side */}
+                          <div
+                            className="p-10 flex flex-col justify-center"
+                            style={{
+                              color:
+                                theme === 'light'
+                                  ? 'var(--background-text, #0f172a)'
+                                  : 'var(--background-text, #f9fafb)',
+                            }}
+                          >
+                            <h2
+                              className={`text-3xl md:text-4xl font-bold tracking-tight mb-3 leading-tight outline-none transition-all ${enableSelectEdit ? 'hover:ring-2 hover:ring-indigo-400/50 hover:bg-indigo-50/10 rounded-lg px-2 -mx-2 cursor-text' : ''
+                                }`}
+                              contentEditable={enableSelectEdit}
+                              suppressContentEditableWarning
+                              onBlur={(e) =>
+                                handleTitleChange(index, e.currentTarget.textContent ? e.currentTarget.textContent.trim() : '')
+                              }
+                            >
+                              {slide.title}
+                            </h2>
+                            <div
+                              className="w-20 h-1.5 rounded-full mb-6"
+                              style={{ background: 'var(--primary-color, #6366f1)' }}
+                            />
+                            <div className="space-y-4 text-base md:text-lg leading-relaxed">
+                              {slide.content.map((point, idx) => (
+                                <div key={idx} className="flex items-start gap-3 group/bullet">
+                                  <div
+                                    className="mt-2 w-2.5 h-2.5 rounded-full flex-shrink-0"
                                     style={{
                                       backgroundColor:
                                         theme === 'light'
                                           ? 'var(--background-text, #0f172a)'
                                           : 'var(--background-text, #f9fafb)',
                                     }}
-                                />
-                                <p
-                                  className="outline-none"
-                                  contentEditable={enableSelectEdit}
-                                  suppressContentEditableWarning
-                                  onBlur={(e) =>
-                                    handleBulletChange(
-                                      index,
-                                      idx,
-                                      e.currentTarget.textContent ? e.currentTarget.textContent.trim() : ''
-                                    )
-                                  }
+                                  />
+                                  <p
+                                    className={`outline-none transition-all flex-1 ${enableSelectEdit ? 'hover:ring-2 hover:ring-indigo-400/50 hover:bg-indigo-50/10 rounded-lg px-2 -mx-2 cursor-text' : ''
+                                      }`}
+                                    contentEditable={enableSelectEdit}
+                                    suppressContentEditableWarning
+                                    onBlur={(e) =>
+                                      handleBulletChange(
+                                        index,
+                                        idx,
+                                        e.currentTarget.textContent ? e.currentTarget.textContent.trim() : ''
+                                      )
+                                    }
+                                  >
+                                    {point}
+                                  </p>
+                                  {enableSelectEdit && (
+                                    <button
+                                      onClick={() => handleDeleteBullet(index, idx)}
+                                      className="opacity-0 group-hover/bullet:opacity-100 p-1 text-slate-400 hover:text-red-500 transition-all rounded-md hover:bg-red-50 shrink-0"
+                                      title="Delete point"
+                                    >
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                      </svg>
+                                    </button>
+                                  )}
+                                </div>
+                              ))}
+                              {enableSelectEdit && (
+                                <button
+                                  onClick={() => handleAddBullet(index)}
+                                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border border-dashed transition-all w-fit mt-2 ${theme === 'light'
+                                      ? 'border-slate-200 text-slate-400 hover:border-indigo-300 hover:text-indigo-500 hover:bg-indigo-50/30'
+                                      : 'border-neutral-700 text-neutral-500 hover:border-indigo-500/50 hover:text-indigo-400 hover:bg-indigo-500/5'
+                                    }`}
                                 >
-                                  {point}
-                                </p>
-                              </div>
-                            ))}
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                  </svg>
+                                  <span className="text-sm font-medium">Add point</span>
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
             </div>
-          </div>
-        </main>
+          </main>
 
-        {/* ─── Right History Sidebar ─── */}
-        {isHistoryOpen && (
+          {/* ─── Right History Sidebar ─── */}
+          {isHistoryOpen && (
             <aside
-              className={`w-[280px] rounded-2xl ml-4 flex flex-col shrink-0 overflow-hidden border ${
-                theme === 'light'
+              className={`w-[280px] rounded-2xl ml-4 flex flex-col shrink-0 overflow-hidden border ${theme === 'light'
                   ? 'bg-white border-slate-200'
                   : 'bg-neutral-900/95 border-neutral-700'
-              }`}
-            >
-            <div
-              className={`flex items-center justify-between px-4 py-3 border-b ${
-                theme === 'light' ? 'border-slate-100' : 'border-neutral-800'
-              }`}
-            >
-              <div>
-                <h2
-                  className={`text-sm font-semibold ${
-                    theme === 'light' ? 'text-slate-900' : 'text-slate-50'
-                  }`}
-                >
-                  Your presentations
-                </h2>
-                <p
-                  className={`text-[11px] ${
-                    theme === 'light' ? 'text-slate-500' : 'text-slate-300'
-                  }`}
-                >
-                  Recent decks you generated
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsHistoryOpen(false)}
-                className={`p-1.5 rounded-lg transition ${
-                  theme === 'light'
-                    ? 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
-                    : 'text-slate-300 hover:text-slate-50 hover:bg-neutral-800'
                 }`}
-                aria-label="Close history panel"
+            >
+              <div
+                className={`flex items-center justify-between px-4 py-3 border-b ${theme === 'light' ? 'border-slate-100' : 'border-neutral-800'
+                  }`}
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2 text-sm">
-              {isLoadingHistory && (
-                <div
-                  className={`text-xs px-2 py-1 ${
-                    theme === 'light' ? 'text-slate-500' : 'text-slate-300'
-                  }`}
-                >
-                  Loading history…
+                <div>
+                  <h2
+                    className={`text-sm font-semibold ${theme === 'light' ? 'text-slate-900' : 'text-slate-50'
+                      }`}
+                  >
+                    Your presentations
+                  </h2>
+                  <p
+                    className={`text-[11px] ${theme === 'light' ? 'text-slate-500' : 'text-slate-300'
+                      }`}
+                  >
+                    Recent decks you generated
+                  </p>
                 </div>
-              )}
-              {historyError && !isLoadingHistory && (
-                <div className="text-xs text-rose-500 px-2 py-1">{historyError}</div>
-              )}
-              {!isLoadingHistory && !historyError && history.length === 0 && (
-                <div
-                  className={`text-xs px-2 py-1 ${
-                    theme === 'light' ? 'text-slate-400' : 'text-slate-500'
-                  }`}
-                >
-                  No saved presentations yet.
-                </div>
-              )}
-
-              {history.map((item) => (
                 <button
-                  key={item.id}
                   type="button"
-                  className={`w-full text-left rounded-xl border px-3 py-2.5 transition ${
-                    theme === 'light'
-                      ? 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
-                      : 'border-neutral-700 bg-neutral-900 hover:border-neutral-500 hover:shadow-sm'
-                  }`}
+                  onClick={() => setIsHistoryOpen(false)}
+                  className={`p-1.5 rounded-lg transition ${theme === 'light'
+                      ? 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                      : 'text-slate-300 hover:text-slate-50 hover:bg-neutral-800'
+                    }`}
+                  aria-label="Close history panel"
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <span
-                      className={`text-xs font-medium truncate ${
-                        theme === 'light' ? 'text-slate-900' : 'text-slate-100'
-                      }`}
-                    >
-                      {item.title}
-                    </span>
-                    <span
-                      className={`text-[10px] whitespace-nowrap ${
-                        theme === 'light' ? 'text-slate-400' : 'text-slate-400'
-                      }`}
-                    >
-                      {item.slideCount} slides
-                    </span>
-                  </div>
-                  {item.description && (
-                    <p
-                      className={`mt-1 text-[11px] line-clamp-2 ${
-                        theme === 'light' ? 'text-slate-500' : 'text-slate-300'
-                      }`}
-                    >
-                      {item.description}
-                    </p>
-                  )}
-                  <div className="mt-1 text-[10px] text-slate-400">
-                    {new Date(item.createdAt).toLocaleString()}
-                  </div>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
                 </button>
-              ))}
-            </div>
-          </aside>
-        )}
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2 text-sm">
+                {isLoadingHistory && (
+                  <div
+                    className={`text-xs px-2 py-1 ${theme === 'light' ? 'text-slate-500' : 'text-slate-300'
+                      }`}
+                  >
+                    Loading history…
+                  </div>
+                )}
+                {historyError && !isLoadingHistory && (
+                  <div className="text-xs text-rose-500 px-2 py-1">{historyError}</div>
+                )}
+                {!isLoadingHistory && !historyError && history.length === 0 && (
+                  <div
+                    className={`text-xs px-2 py-1 ${theme === 'light' ? 'text-slate-400' : 'text-slate-500'
+                      }`}
+                  >
+                    No saved presentations yet.
+                  </div>
+                )}
+
+                {history.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`w-full text-left rounded-xl border px-3 py-2.5 transition ${theme === 'light'
+                        ? 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
+                        : 'border-neutral-700 bg-neutral-900 hover:border-neutral-500 hover:shadow-sm'
+                      }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span
+                        className={`text-xs font-medium truncate ${theme === 'light' ? 'text-slate-900' : 'text-slate-100'
+                          }`}
+                      >
+                        {item.title}
+                      </span>
+                      <span
+                        className={`text-[10px] whitespace-nowrap ${theme === 'light' ? 'text-slate-400' : 'text-slate-400'
+                          }`}
+                      >
+                        {item.slideCount} slides
+                      </span>
+                    </div>
+                    {item.description && (
+                      <p
+                        className={`mt-1 text-[11px] line-clamp-2 ${theme === 'light' ? 'text-slate-500' : 'text-slate-300'
+                          }`}
+                      >
+                        {item.description}
+                      </p>
+                    )}
+                    <div className="mt-1 text-[10px] text-slate-400">
+                      {new Date(item.createdAt).toLocaleString()}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </aside>
+          )}
+        </div>
       </div>
-    </div>
-    {isPresentMode && (
-      <PresentationMode
-        slides={editableSlides}
-        initialSlide={safeIndex}
-        onExit={() => setIsPresentMode(false)}
-        templateLayouts={templateLayouts}
-        layoutIndices={layoutIndices}
-        buildSlideData={buildSlideData || undefined}
-        templateComponent={LayoutComponent}
+      {isPresentMode && (
+        <PresentationMode
+          slides={editableSlides}
+          initialSlide={safeIndex}
+          onExit={() => setIsPresentMode(false)}
+          templateLayouts={templateLayouts}
+          layoutIndices={layoutIndices}
+          buildSlideData={buildSlideData || undefined}
+          templateComponent={LayoutComponent}
+        />
+      )}
+      {isRoutingToDashboard && (
+        <AuthLoadingBar
+          userEmail={null}
+          onComplete={() => router.push('/dashboard')}
+        />
+      )}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileUpload}
+        className="hidden"
+        accept="image/*"
       />
-    )}
-    {isRoutingToDashboard && (
-      <AuthLoadingBar
-        userEmail={null}
-        onComplete={() => router.push('/dashboard')}
-      />
-    )}
     </>
   )
 }

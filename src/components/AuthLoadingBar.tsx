@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useTheme } from '@/providers/ThemeProvider'
-import { queryClient } from '@/providers/QueryProvider'
+import { useQueryClient } from '@tanstack/react-query'
 
 interface AuthLoadingBarProps {
   userEmail?: string | null
@@ -21,6 +21,7 @@ interface HistoryResponse {
     design: string
     language: string
   }>
+  creditsUsed?: number
 }
 
 const STAGES = [
@@ -33,6 +34,7 @@ const STAGES = [
 
 export default function AuthLoadingBar({ userEmail, title, isReady, onComplete }: AuthLoadingBarProps) {
   const { theme } = useTheme()
+  const queryClient = useQueryClient()
   const [stageIndex, setStageIndex] = useState(0)
   const animationDoneRef = useRef(false)
   const dataFetchedRef = useRef(false)
@@ -72,7 +74,10 @@ export default function AuthLoadingBar({ userEmail, title, isReady, onComplete }
           )
           if (!res.ok) throw new Error('Failed to load presentations history')
           const json = (await res.json()) as HistoryResponse
-          return json.presentations || []
+          return {
+            presentations: json.presentations || [],
+            creditsUsed: json.creditsUsed || 0,
+          }
         },
         staleTime: 60_000,
       })

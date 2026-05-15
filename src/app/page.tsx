@@ -657,7 +657,7 @@ export default function Home() {
                   Pro
                 </motion.p>
                 <motion.p className="text-2xl font-semibold mb-1" {...textRevealProps}>
-                  $
+                  ₹999<span className="text-lg font-normal text-slate-300">/mo</span>
                 </motion.p>
                 <motion.p className="text-slate-200 mb-3" {...textRevealProps}>
                   For people who create decks every week.
@@ -691,7 +691,7 @@ export default function Home() {
                   }`}
                   {...textRevealProps}
                 >
-                  Custom
+                  ₹1999<span className="text-lg font-normal opacity-60">/mo</span>
                 </motion.p>
                 <motion.p
                   className={theme === 'light' ? 'text-slate-600 mb-3' : 'text-slate-300 mb-3'}

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ExternalLink, LogOut, ChevronDown } from 'lucide-react'
+import { ExternalLink, LogOut, ChevronDown, CreditCard, X, Check } from 'lucide-react'
 import { templates } from '@/app/presentation-templates'
 import type {
   TemplateLayoutsWithSettings,
@@ -42,7 +42,9 @@ function DashboardContent() {
   const { theme, toggleTheme } = useTheme()
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const [userName, setUserName] = useState<string | null>(null)
+  const [isAuthLoaded, setIsAuthLoaded] = useState(false)
   const [activeView, setActiveView] = useState<'overview' | 'templates' | 'presentations'>(initialView)
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false)
 
   useEffect(() => {
     const view = searchParams.get('view')
@@ -50,6 +52,71 @@ function DashboardContent() {
       setActiveView(view as any)
     }
   }, [searchParams])
+
+  const loadRazorpay = () => {
+    return new Promise((resolve) => {
+      const script = document.createElement('script')
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js'
+      script.async = true
+      script.onload = () => resolve(true)
+      script.onerror = () => resolve(false)
+      document.body.appendChild(script)
+    })
+  }
+
+  const handlePayment = async (amount: number, planName: string) => {
+    if (isProcessingPayment) return
+    setIsProcessingPayment(true)
+
+    const isLoaded = await loadRazorpay()
+
+    if (!isLoaded) {
+      alert('Razorpay SDK failed to load. Please check your connection.')
+      setIsProcessingPayment(false)
+      return
+    }
+
+    try {
+      const response = await fetch('/api/razorpay/order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount }),
+      })
+      const order = await response.json()
+
+      if (order.error) throw new Error(order.error)
+
+      const options = {
+        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+        amount: order.amount,
+        currency: order.currency,
+        name: 'vivid ai',
+        description: `${planName} Subscription`,
+        order_id: order.id,
+        handler: async function (response: any) {
+          alert(`Payment successful! Payment ID: ${response.razorpay_payment_id}`)
+          setShowSubscriptionModal(false)
+          // In a real app, you'd call a verify-payment endpoint here
+        },
+        prefill: {
+          email: userEmail || '',
+          name: userName || '',
+        },
+        theme: {
+          color: '#6366f1',
+        },
+      }
+
+      const paymentObject = new (window as any).Razorpay(options)
+      paymentObject.open()
+    } catch (err) {
+      console.error(err)
+      alert('Could not initiate payment. Please try again.')
+    } finally {
+      setIsProcessingPayment(false)
+    }
+  }
+
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false)
   const [showLoadingBar, setShowLoadingBar] = useState(false)
   const profileDropdownRef = useRef<HTMLDivElement>(null)
@@ -57,6 +124,7 @@ function DashboardContent() {
   const setSelectedTemplateId = usePresentationStore(
     (state) => state.setSelectedTemplateId
   )
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false)
   const queryClient = useQueryClient()
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
@@ -101,6 +169,8 @@ function DashboardContent() {
       }
     } catch {
       router.replace('/')
+    } finally {
+      setIsAuthLoaded(true)
     }
   }, [router])
 
@@ -170,7 +240,7 @@ function DashboardContent() {
   const creditsRemaining = Math.max(creditsTotal - creditsUsed, 0)
   const creditsProgress = Math.min((creditsUsed / creditsTotal) * 100, 100)
 
-  const emptyState = !isLoading && presentations.length === 0
+  const emptyState = isAuthLoaded && !isLoading && presentations.length === 0
 
   const formatDate = (iso: string) => {
     const date = new Date(iso)
@@ -321,21 +391,35 @@ function DashboardContent() {
                     </span>
                   </div>
 
-                  {/* Logout button */}
-                  <div className="p-1.5">
-                    <button
-                      type="button"
-                      onClick={handleLogout}
-                      className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
-                        theme === 'light'
-                          ? 'text-rose-600 hover:bg-rose-50'
-                          : 'text-rose-400 hover:bg-rose-500/10'
-                      }`}
-                    >
-                      <LogOut className="w-3.5 h-3.5" />
-                      Log out
-                    </button>
-                  </div>
+                   {/* Manage Subscription */}
+                   <div className="px-1.5 pt-1.5">
+                     <button
+                       type="button"
+                       onClick={() => setShowSubscriptionModal(true)}
+                       className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${theme === 'light'
+                           ? 'text-slate-600 hover:bg-slate-50'
+                           : 'text-slate-300 hover:bg-neutral-800'
+                         }`}
+                     >
+                       <CreditCard className="w-3.5 h-3.5 text-indigo-500" />
+                       Manage subscription
+                     </button>
+                   </div>
+
+                   {/* Logout button */}
+                   <div className="p-1.5 pt-0">
+                     <button
+                       type="button"
+                       onClick={handleLogout}
+                       className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${theme === 'light'
+                           ? 'text-rose-600 hover:bg-rose-50'
+                           : 'text-rose-400 hover:bg-rose-500/10'
+                         }`}
+                     >
+                       <LogOut className="w-3.5 h-3.5" />
+                       Log out
+                     </button>
+                   </div>
                 </div>
               )}
             </div>
@@ -469,7 +553,7 @@ function DashboardContent() {
                     : 'border-neutral-800 bg-gradient-to-b from-black via-neutral-900 to-neutral-800'
                 }`}
               >
-                {isLoading ? (
+                {isLoading || !isAuthLoaded ? (
                   <div className="text-xs text-slate-500">Loading your presentations…</div>
                 ) : emptyState ? (
                   <div className="flex flex-col items-start gap-2 text-xs text-slate-500">
@@ -995,6 +1079,136 @@ function DashboardContent() {
           userEmail={null} 
           onComplete={() => router.push('/app-maker')} 
         />
+      )}
+
+      {/* Subscription Modal */}
+      {showSubscriptionModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+          <div
+            className={`w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl relative ${theme === 'light' ? 'bg-white' : 'bg-neutral-900 border border-neutral-800'
+              }`}
+          >
+            <button
+              onClick={() => setShowSubscriptionModal(false)}
+              className="absolute top-6 right-6 p-2 rounded-full hover:bg-slate-100 dark:hover:bg-neutral-800 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="p-8 md:p-12">
+              <div className="text-center max-w-2xl mx-auto mb-12">
+                <h2 className="text-3xl font-bold tracking-tight mb-4">
+                  You're on a free trial!
+                </h2>
+                <p className={`text-lg ${theme === 'light' ? 'text-slate-600' : 'text-slate-400'}`}>
+                  Upgrade to Enjoy new features and tools. Unlock higher limits, premium templates, and priority AI generation.
+                </p>
+              </div>
+
+              <div className="grid gap-6 md:grid-cols-3">
+                {/* Starter */}
+                <div
+                  className={`rounded-2xl border p-6 flex flex-col justify-between ${theme === 'light'
+                      ? 'border-slate-200 bg-slate-50/50'
+                      : 'border-neutral-800 bg-neutral-900/50'
+                    }`}
+                >
+                  <div>
+                    <p className={`text-[11px] font-bold uppercase tracking-widest mb-1 ${theme === 'light' ? 'text-slate-500' : 'text-slate-500'
+                      }`}>
+                      Starter
+                    </p>
+                    <p className="text-3xl font-bold mb-2">Free</p>
+                    <p className={`text-sm mb-6 ${theme === 'light' ? 'text-slate-600' : 'text-slate-400'}`}>
+                      Best for trying vivid ai on small decks.
+                    </p>
+                    <ul className="space-y-3 mb-8">
+                      {['Limited presentations', 'Core templates', 'Export-ready decks'].map((feat) => (
+                        <li key={feat} className="flex items-center gap-2 text-sm">
+                          <Check className="w-4 h-4 text-emerald-500" />
+                          <span>{feat}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <button className="w-full py-3 rounded-xl border border-slate-200 font-semibold text-sm hover:bg-slate-50 transition">
+                    Current Plan
+                  </button>
+                </div>
+
+                {/* Pro */}
+                <div
+                  className={`rounded-2xl border-2 p-6 flex flex-col justify-between relative scale-105 shadow-xl ${theme === 'light'
+                      ? 'border-indigo-600 bg-white'
+                      : 'border-indigo-500 bg-neutral-800'
+                    }`}
+                >
+                  <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-indigo-600 text-white text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full">
+                    Most Popular
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-widest mb-1 text-indigo-500">
+                      Pro
+                    </p>
+                    <p className="text-3xl font-bold mb-2">₹999<span className="text-lg font-normal opacity-60">/mo</span></p>
+                    <p className={`text-sm mb-6 ${theme === 'light' ? 'text-slate-600' : 'text-slate-400'}`}>
+                      For people who create decks every week.
+                    </p>
+                    <ul className="space-y-3 mb-8">
+                      {['Higher presentation limits', 'All template families', 'Priority rendering', 'Advanced AI editing'].map((feat) => (
+                        <li key={feat} className="flex items-center gap-2 text-sm">
+                          <Check className="w-4 h-4 text-indigo-500" />
+                          <span>{feat}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <button
+                    onClick={() => handlePayment(999, 'Pro')}
+                    disabled={isProcessingPayment}
+                    className="w-full py-3 rounded-xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-700 transition shadow-lg shadow-indigo-200 dark:shadow-none disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isProcessingPayment ? 'Processing...' : 'Buy Now'}
+                  </button>
+                </div>
+
+                {/* Team */}
+                <div
+                  className={`rounded-2xl border p-6 flex flex-col justify-between ${theme === 'light'
+                      ? 'border-slate-200 bg-slate-50/50'
+                      : 'border-neutral-800 bg-neutral-900/50'
+                    }`}
+                >
+                  <div>
+                    <p className={`text-[11px] font-bold uppercase tracking-widest mb-1 ${theme === 'light' ? 'text-slate-500' : 'text-slate-500'
+                      }`}>
+                      Team
+                    </p>
+                    <p className="text-3xl font-bold mb-2">₹1999<span className="text-lg font-normal opacity-60">/mo</span></p>
+                    <p className={`text-sm mb-6 ${theme === 'light' ? 'text-slate-600' : 'text-slate-400'}`}>
+                      For teams that want shared standards.
+                    </p>
+                    <ul className="space-y-3 mb-8">
+                      {['Shared templates', 'Centralized billing', 'Early access', 'Custom branding'].map((feat) => (
+                        <li key={feat} className="flex items-center gap-2 text-sm">
+                          <Check className="w-4 h-4 text-emerald-500" />
+                          <span>{feat}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <button
+                    onClick={() => handlePayment(1999, 'Team')}
+                    disabled={isProcessingPayment}
+                    className="w-full py-3 rounded-xl border border-slate-200 font-semibold text-sm hover:bg-slate-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isProcessingPayment ? 'Processing...' : 'Buy Now'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

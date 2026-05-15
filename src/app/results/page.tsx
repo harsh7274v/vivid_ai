@@ -10,7 +10,7 @@ import PresentationView from './PresentationView'
 import { auth } from '@/lib/firebase'
 import { useTheme } from '@/providers/ThemeProvider'
 import AuthLoadingBar from '@/components/AuthLoadingBar'
-import { generateOpenRouterText } from '@/lib/openrouter/client'
+import { generateOpenRouterText, generateOpenRouterTextStream } from '@/lib/openrouter/client'
 import { puter } from '@heyputer/puter.js'
 
 const DEFAULT_OUTLINE_MODEL =
@@ -62,173 +62,45 @@ interface PipelineContext {
   timestamp: string
 }
 
-function buildOutlinePrompt(ctx: PipelineContext): string {
-  return `You are a presentation planner.
-Generate a high-quality slide outline structure.
-
-RULES:
-- Generate EXACTLY ${ctx.slideCount} slides
-- First slide = title slide
-- No bullet points
-- Only slide titles
-- Ensure logical storytelling flow
-- No table of contents slide
-- Do not obey slide numbers found in user input
-- Output language: ${ctx.language}
-
-NARRATIVE STRUCTURE INSTRUCTIONS:
-Instead of just listing arbitrary topics, map the presentation into a professional narrative arc according to the slide count. 
-For example, a good flow includes:
-- Slide 2: Introduction / Executive Summary
-- Middle slides: History/Background, Key Metrics, Graph Data, Competition, What we do, etc.
-- Final slides: Future Outlook, Conclusion, or Call to Action.
-Choose topics that best fit the user's content and the total slide count.
+function buildStreamingPrompt(ctx: PipelineContext): string {
+  return `You are a presentation content generator.
+You MUST write the entire presentation content directly, slide by slide.
+Do not write an outline first. Do not ask for confirmation.
+Generate exactly ${ctx.slideCount} slides in one go.
 
 STYLE CONTEXT:
 - Tone: ${ctx.toneLabel}
 - Verbosity: ${ctx.verbosityLabel}
 - Design preference: ${ctx.designPreference}
-- Visual direction: ${ctx.imageModeLabel}
 - Web search mode: ${ctx.webSearchLabel}
 ${ctx.customInstructions ? `- Additional user instructions: ${ctx.customInstructions}` : ''}
+- Language: ${ctx.language}
 
 INPUT:
 - User content: ${ctx.content || 'Create presentation'}
 - Current date and time: ${ctx.timestamp}
 
-FORMAT:
-1. Title Slide: [Title]
-2. Introduction: [Specific topic]
-3. [E.g. Key Metrics]: [Specific topic]
-...
-${ctx.slideCount}. [E.g. Future Outlook]: [Specific topic]
+STRICT FORMATTING RULES:
+- You must use EXACTLY this header format to separate slides: "SLIDE n:"
+- For Slide 1 (Title slide), use exactly these labels:
+  Title: [Your Title]
+  Subtitle: [Your Subtitle]
+  Overview: [One sentence overview]
+- For Slides 2 to ${ctx.slideCount}, start with: "Slide Title: [Your Slide Title]"
+- Then provide the actual content as bullet points or short paragraphs.
+- Do NOT add any extra conversational text outside of the slide blocks.
+- Generate all slides now.
 
-No explanations.`
-}
-
-function buildExpansionPrompt(ctx: PipelineContext, outlineFromStep1: string): string {
-  return `You are a presentation content generator.
-Expand each slide into the most appropriate content structure based on its topic.
-
-INPUT:
-Outline:
-${outlineFromStep1}
-
-RULES:
-- Keep EXACTLY ${ctx.slideCount} slides from the outline
-- Do not change slide order
-- Do not add or remove slides
-- Vary the format based on the slide type (e.g., use a short paragraph for an Introduction, 3-4 bullets for Key Features, short metrics for Data slides, a timeline sequence for History, etc.)
-- Keep content concise, factual, and presentation-ready
-- Do not include image placeholders
-- Output language: ${ctx.language}
-
-FORMAT:
+EXAMPLE:
 SLIDE 1:
-Title: Your Presentation Title
-Subtitle: Your Subtitle
-Overview: A one-sentence overview of the presentation.
+Title: AI in Healthcare
+Subtitle: The Future of Medicine
+Overview: An overview of how AI transforms healthcare delivery.
 
 SLIDE 2:
-Slide Title: Introduction
-Our company has been innovating since 2010.
-We focus on sustainable technology.
-
-SLIDE 3:
-Slide Title: Key Metrics
-• 500k Active Users
-• $2M Annual Revenue
-
-...
-
-STRICT:
-- Use headers exactly like "SLIDE n:" for every slide
-- For slides 2 to ${ctx.slideCount}, output the slide title as "Slide Title: [Title]" followed by the actual generated content
-- Do not just write placeholders like "[Content]". You MUST write the actual real content for the slide.
-- YOU MUST GENERATE AT LEAST 2 TO 5 LINES OF REAL CONTENT FOR EVERY SINGLE SLIDE. NO EMPTY SLIDES ARE ALLOWED.
-- Do not output any text before or after slides`
-}
-
-function buildValidatorPrompt(generatedSlides: string, slideCount: number): string {
-  return `You are a strict output validator and fixer.
-
-Your job:
-- Fix formatting issues
-- Ensure all rules are followed exactly
-
-INPUT:
-${generatedSlides}
-
-CHECK:
-- Correct number of slides: ${slideCount}
-- Every slide header is exactly "SLIDE n:"
-- Slide 1 includes Title, Subtitle, and Overview
-- Slides 2-${slideCount} include a "Slide Title:" line followed by appropriate content
-- No extra text outside the slide blocks
-
-If anything is wrong, fix it.
-
-OUTPUT:
-Return ONLY corrected presentation in this format:
-SLIDE 1:
-Title: Actual Title
-Subtitle: Actual Subtitle
-Overview: Actual Overview
-
-SLIDE 2:
-Slide Title: Actual Slide Title
-Actual content line 1
-Actual content line 2`
-}
-
-function validatePipelineOutput(content: string, slideCount: number): { isValid: boolean; issues: string[] } {
-  const issues: string[] = []
-  const headerRegex = /^\s*SLIDE\s+#?\s*(\d+)\s*:/gim
-  const headers = Array.from(content.matchAll(headerRegex)).map((m) => Number(m[1]))
-
-  if (headers.length !== slideCount) {
-    issues.push(`Expected ${slideCount} slides, found ${headers.length}.`)
-  }
-
-  if (headers.length > 0) {
-    const uniqueHeaders = new Set(headers)
-    for (let i = 1; i <= slideCount; i += 1) {
-      if (!uniqueHeaders.has(i)) {
-        issues.push(`Missing SLIDE ${i} header.`)
-      }
-    }
-  }
-
-  const slideBlocks = content
-    .split(/(?=^\s*SLIDE\s+#?\s*\d+\s*:)/gim)
-    .map((block) => block.trim())
-    .filter((block) => block.length > 0)
-
-  for (const block of slideBlocks) {
-    const slideNumberMatch = block.match(/^\s*SLIDE\s+#?\s*(\d+)\s*:/im)
-    const slideNumber = slideNumberMatch ? Number(slideNumberMatch[1]) : 0
-
-    if (slideNumber === 1) {
-      if (!/^\s*Title:\s*.+/im.test(block)) issues.push('Slide 1 is missing Title.')
-      if (!/^\s*Subtitle:\s*.+/im.test(block)) issues.push('Slide 1 is missing Subtitle.')
-      if (!/^\s*Overview:\s*.+/im.test(block)) issues.push('Slide 1 is missing Overview.')
-      continue
-    }
-
-    if (slideNumber >= 2) {
-      if (!/^\s*Slide Title:\s*.+/im.test(block)) {
-        issues.push(`Slide ${slideNumber} is missing Slide Title.`)
-      }
-
-      const lines = block.split('\n').map(l => l.trim()).filter(Boolean)
-      const titleIndex = lines.findIndex(l => /^\s*Slide Title:\s*.+/i.test(l))
-      if (titleIndex === -1 || titleIndex === lines.length - 1) {
-        issues.push(`Slide ${slideNumber} is missing actual content below the title. You must write at least 2 lines of real content.`)
-      }
-    }
-  }
-
-  return { isValid: issues.length === 0, issues }
+Slide Title: Early Diagnosis
+- AI can detect patterns invisible to the human eye.
+- Speeds up MRI scan analysis by 40%.`
 }
 
 function buildOutlineSkeleton(slideCount: number): Slide[] {
@@ -257,8 +129,8 @@ function AllTemplatesGrid() {
   return (
     <div
       className={`rounded-2xl border p-6 md:p-8 transition-colors duration-200 ${theme === 'light'
-          ? 'bg-white border-slate-200 shadow-sm'
-          : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 border-neutral-800 shadow-[0_18px_60px_rgba(0,0,0,1)]'
+        ? 'bg-white border-slate-200 shadow-sm'
+        : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 border-neutral-800 shadow-[0_18px_60px_rgba(0,0,0,1)]'
         }`}
     >
       <div className="text-center mb-8">
@@ -285,12 +157,12 @@ function AllTemplatesGrid() {
               <div
                 key={template.id}
                 className={`border rounded-lg cursor-pointer transition-all duration-200 group overflow-hidden ${selectedTemplateId === template.id
-                    ? theme === 'light'
-                      ? 'bg-white border-slate-900 ring-2 ring-slate-300 shadow-lg'
-                      : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 border-neutral-400 ring-2 ring-neutral-600/80 shadow-[0_18px_60px_rgba(0,0,0,1)]'
-                    : theme === 'light'
-                      ? 'bg-white border-slate-200 hover:shadow-md'
-                      : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 border-neutral-800 hover:shadow-md'
+                  ? theme === 'light'
+                    ? 'bg-white border-slate-900 ring-2 ring-slate-300 shadow-lg'
+                    : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 border-neutral-400 ring-2 ring-neutral-600/80 shadow-[0_18px_60px_rgba(0,0,0,1)]'
+                  : theme === 'light'
+                    ? 'bg-white border-slate-200 hover:shadow-md'
+                    : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 border-neutral-800 hover:shadow-md'
                   }`}
                 onClick={() => {
                   setSelectedTemplateId(template.id)
@@ -628,6 +500,33 @@ function buildAiImagePrompt(slide: Slide): string {
   ].join('\n')
 }
 
+const AnimatedStreamText = ({ text, className }: { text: string; className?: string }) => {
+  const [displayedText, setDisplayedText] = useState(text)
+
+  useEffect(() => {
+    // If the target text is completely different or shorter, jump immediately (reset)
+    if (text.length < displayedText.length || !text.startsWith(displayedText)) {
+      setDisplayedText(text)
+      return
+    }
+    if (text === displayedText) return
+
+    let index = displayedText.length
+    const interval = setInterval(() => {
+      if (index < text.length) {
+        index += Math.max(1, Math.floor((text.length - index) / 3)) // Speed up if lagging behind
+        setDisplayedText(text.slice(0, index))
+      } else {
+        clearInterval(interval)
+      }
+    }, 10)
+
+    return () => clearInterval(interval)
+  }, [text, displayedText])
+
+  return <span className={className}>{displayedText}</span>
+}
+
 function ResultsPageInner() {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -641,6 +540,8 @@ function ResultsPageInner() {
   const [outlineGenerationError, setOutlineGenerationError] = useState<string | null>(null)
   const slides = useMemo(() => (outlineContent ? parseContent(outlineContent) : []), [outlineContent])
   const [orderedSlides, setOrderedSlides] = useState<Slide[]>(slides)
+  const [frozenSlides, setFrozenSlides] = useState<Slide[]>([])
+  const [activeStreamSlide, setActiveStreamSlide] = useState<Slide | null>(null)
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null)
   const [bulletDragging, setBulletDragging] = useState<{
     slideIndex: number
@@ -748,70 +649,119 @@ function ResultsPageInner() {
         ? WEB_SEARCH_OUTLINE_MODEL
         : DEFAULT_OUTLINE_MODEL
 
-      const callGenerationModel = async (prompt: string): Promise<string> => {
-        if (payload.generationProvider === 'gpt') {
-          const puterResponse: any = await puter.ai.chat(prompt)
-          if (typeof puterResponse === 'string') return puterResponse
-          
-          const content = puterResponse?.message?.content ?? puterResponse?.text
-          if (content) {
-            return typeof content === 'object' ? JSON.stringify(content) : String(content)
-          }
-          
-          if (puterResponse && typeof puterResponse === 'object') {
-            return JSON.stringify(puterResponse)
-          }
-          
-          return String(puterResponse)
+
+
+      // Rebuild orderedSlides = frozen + active + remaining skeletons
+      const skeletonSlides = buildOutlineSkeleton(payload.slideCount)
+      const rebuildOrdered = (frozen: Slide[], active: Slide | null) => {
+        const result: Slide[] = [...frozen]
+        if (active) result.push(active)
+        while (result.length < payload.slideCount) {
+          result.push(skeletonSlides[result.length])
         }
-
-        try {
-          return await generateOpenRouterText({
-            prompt,
-            model: modelForOutlineGeneration,
-          })
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error)
-          const shouldFallbackToDefaultModel =
-            payload.advancedSettings.webSearch &&
-            modelForOutlineGeneration !== DEFAULT_OUTLINE_MODEL &&
-            /429|rate\s*-?\s*limit/i.test(errorMessage)
-
-          if (!shouldFallbackToDefaultModel) {
-            throw error
-          }
-
-          return await generateOpenRouterText({
-            prompt,
-            model: DEFAULT_OUTLINE_MODEL,
-          })
-        }
+        return result
       }
 
+      const abortController = new AbortController()
+
       try {
-        const outlinePrompt = buildOutlinePrompt(pipelineContext)
-        const outlineFromStep1 = await callGenerationModel(outlinePrompt)
+        const streamingPrompt = buildStreamingPrompt(pipelineContext)
 
-        const expansionPrompt = buildExpansionPrompt(pipelineContext, outlineFromStep1)
-        const expandedSlides = await callGenerationModel(expansionPrompt)
+        let fullAccumulated = ''
+        let lastFlushTime = Date.now()
+        let flushTimeout: ReturnType<typeof setTimeout> | null = null
 
-        const validatorPrompt = buildValidatorPrompt(expandedSlides, payload.slideCount)
-        let responseText = await callGenerationModel(validatorPrompt)
+        const onChunk = (chunk: string) => {
+          if (isCancelled) return
+          fullAccumulated += chunk
 
-        const firstValidation = validatePipelineOutput(responseText, payload.slideCount)
-        if (!firstValidation.isValid) {
-          const retryPrompt = `${buildValidatorPrompt(responseText, payload.slideCount)}
-
-Detected issues to fix:
-${firstValidation.issues.map((issue) => `- ${issue}`).join('\n')}
-
-Apply all fixes now and return only corrected slides.`
-          responseText = await callGenerationModel(retryPrompt)
+          // Throttle: update state at most once per 100ms
+          const now = Date.now()
+          if (now - lastFlushTime > 100) {
+            processAccumulated()
+            lastFlushTime = now
+            if (flushTimeout) clearTimeout(flushTimeout)
+          } else {
+            if (flushTimeout) clearTimeout(flushTimeout)
+            flushTimeout = setTimeout(() => {
+              processAccumulated()
+              lastFlushTime = Date.now()
+            }, 100)
+          }
         }
 
+        const processAccumulated = () => {
+          // Parse all slides found in the buffer so far
+          const allSlides = parseContent(fullAccumulated)
+
+          if (allSlides.length > 0) {
+            // Filter out the initial "Generating..." slide if we have actual SLIDE markers
+            const hasRealSlides = allSlides.some(s => !s.title.startsWith('Generating'))
+            const realSlides = hasRealSlides
+              ? allSlides.filter(s => !s.title.startsWith('Generating'))
+              : allSlides
+
+            // The last slide in the buffer is the one currently being streamed
+            const active = realSlides[realSlides.length - 1]
+            const frozen = realSlides.slice(0, realSlides.length - 1)
+
+            setFrozenSlides(frozen)
+            setActiveStreamSlide(active)
+            setOrderedSlides(rebuildOrdered(frozen, active))
+          } else {
+            // Still in preamble/skeleton phase
+            setOrderedSlides(rebuildOrdered([], null))
+          }
+        }
+
+        // Run the stream
+        if (payload.generationProvider === 'gpt') {
+          try {
+            const stream: any = await puter.ai.chat(streamingPrompt, { stream: true })
+            for await (const chunk of stream) {
+              const text: string =
+                typeof chunk === 'string'
+                  ? chunk
+                  : (chunk?.text || chunk?.message?.content || '')
+              if (text) onChunk(text)
+            }
+          } catch {
+            // puter stream failed, fall through to OpenRouter
+            await generateOpenRouterTextStream(
+              { prompt: streamingPrompt, model: modelForOutlineGeneration },
+              onChunk,
+              abortController.signal
+            )
+          }
+        } else {
+          try {
+            await generateOpenRouterTextStream(
+              { prompt: streamingPrompt, model: modelForOutlineGeneration },
+              onChunk,
+              abortController.signal
+            )
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error)
+            const isRateLimit = /429|rate\s*-?\s*limit/i.test(msg)
+            if (isRateLimit && payload.advancedSettings.webSearch && modelForOutlineGeneration !== DEFAULT_OUTLINE_MODEL) {
+              await generateOpenRouterTextStream(
+                { prompt: streamingPrompt, model: DEFAULT_OUTLINE_MODEL },
+                onChunk,
+                abortController.signal
+              )
+            } else {
+              throw error
+            }
+          }
+        }
+
+        if (flushTimeout) clearTimeout(flushTimeout)
         if (isCancelled) return
 
-        setOutlineContent(responseText)
+        // Stream complete — do one final clean parse and switch to editable mode
+        setFrozenSlides([])
+        setActiveStreamSlide(null)
+        setOutlineContent(fullAccumulated)
         setOutlineGenerationError(null)
         window.localStorage.removeItem(PENDING_OUTLINE_STORAGE_KEY)
       } catch (error) {
@@ -915,8 +865,8 @@ Apply all fixes now and return only corrected slides.`
     return (
       <div
         className={`min-h-screen ${theme === 'light'
-            ? 'bg-slate-50 text-slate-900'
-            : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 text-slate-50'
+          ? 'bg-slate-50 text-slate-900'
+          : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 text-slate-50'
           }`}
       >
         <main className="max-w-5xl mx-auto px-4 py-12">
@@ -955,8 +905,8 @@ Apply all fixes now and return only corrected slides.`
     return (
       <div
         className={`min-h-screen ${theme === 'light'
-            ? 'bg-slate-50 text-slate-900'
-            : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 text-slate-50'
+          ? 'bg-slate-50 text-slate-900'
+          : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 text-slate-50'
           }`}
       >
         <main className="max-w-5xl mx-auto px-4 py-12">
@@ -1009,7 +959,7 @@ Apply all fixes now and return only corrected slides.`
           const payload = JSON.parse(decodeURIComponent(contentFromQuery))
           if (payload.generationProvider === 'gpt') provider = 'gpt'
         }
-      } catch (e) {}
+      } catch (e) { }
 
       if (provider === 'gpt') {
         const puterResponse: any = await puter.ai.chat(prompt)
@@ -1108,7 +1058,7 @@ Apply all fixes now and return only corrected slides.`
           const payload = JSON.parse(decodeURIComponent(contentFromQuery))
           if (payload.generationProvider === 'gpt') provider = 'gpt'
         }
-      } catch (e) {}
+      } catch (e) { }
 
       if (provider === 'gpt') {
         const puterResponse: any = await puter.ai.chat(prompt)
@@ -1205,7 +1155,7 @@ Apply all fixes now and return only corrected slides.`
           const payload = JSON.parse(decodeURIComponent(contentFromQuery))
           if (payload.generationProvider === 'gpt') provider = 'gpt'
         }
-      } catch (e) {}
+      } catch (e) { }
 
       if (provider === 'gpt') {
         const puterResponse: any = await puter.ai.chat(prompt)
@@ -1577,13 +1527,13 @@ Apply all fixes now and return only corrected slides.`
     setDraggingIndex(null)
   }
 
-  const isOutlineTab = isGeneratingOutline || selectedSlideIndex < orderedSlides.length
+  const isOutlineTab = isGeneratingOutline || (orderedSlides.length > 0 && selectedSlideIndex < orderedSlides.length) || (pendingOutline && orderedSlides.length === 0 && !outlineGenerationError)
 
   return (
     <div
       className={`min-h-screen ${theme === 'light'
-          ? 'bg-slate-50 text-slate-900'
-          : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 text-slate-50'
+        ? 'bg-slate-50 text-slate-900'
+        : 'bg-gradient-to-b from-black via-neutral-900 to-neutral-800 text-slate-50'
         }`}
     >
       {/* Main Content */}
@@ -1608,8 +1558,8 @@ Apply all fixes now and return only corrected slides.`
               }
             }}
             className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full border transition text-sm ${theme === 'light'
-                ? 'border-slate-200 text-slate-700 hover:bg-slate-100'
-                : 'border-slate-600 text-slate-100 hover:bg-slate-900'
+              ? 'border-slate-200 text-slate-700 hover:bg-slate-100'
+              : 'border-slate-600 text-slate-100 hover:bg-slate-900'
               }`}
           >
             <svg
@@ -1656,62 +1606,74 @@ Apply all fixes now and return only corrected slides.`
 
             {/* Slides Display */}
             <div className="space-y-5">
-              {isGeneratingOutline
-                ? orderedSlides.map((slide, index) => (
-                  <div key={index} className="flex items-stretch gap-3 animate-pulse">
-                    <div
-                      className={`mt-6 h-9 w-7 rounded-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'
-                        }`}
-                    />
-                    <div
-                      className={`flex-1 rounded-3xl overflow-hidden p-7 border ${theme === 'light'
+              {orderedSlides.map((slide, index) => {
+                const isSkeleton = slide.title.startsWith('Generating')
+                const isFrozen = isGeneratingOutline && frozenSlides.some(f => f.number === slide.number)
+                const isActiveStream = isGeneratingOutline && !isSkeleton && !isFrozen
+
+                const slideKey = isGeneratingOutline
+                  ? `stream-slot-${index}`
+                  : `slide-done-${index}-${slide.number}`
+
+                if (isSkeleton) {
+                  return (
+                    <div key={slideKey} className="flex items-stretch gap-3 animate-pulse">
+                      <div
+                        className={`mt-6 h-9 w-7 rounded-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'
+                          }`}
+                      />
+                      <div
+                        className={`flex-1 rounded-3xl overflow-hidden p-7 border ${theme === 'light'
                           ? 'bg-white/80 border-slate-200/70'
                           : 'bg-neutral-900/80 border-neutral-700/70'
-                        }`}
-                    >
-                      <div className="space-y-6">
-                        <div className="flex items-start gap-4">
-                          <div
-                            className={`flex-shrink-0 w-11 h-11 rounded-2xl ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'
-                              }`}
-                          />
-                          <div className="flex-1 space-y-3">
+                          }`}
+                      >
+                        <div className="space-y-6">
+                          <div className="flex items-start gap-4">
                             <div
-                              className={`h-6 w-2/3 rounded ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'
+                              className={`flex-shrink-0 w-11 h-11 rounded-2xl ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'
                                 }`}
                             />
-                            <div
-                              className={`h-1 w-10 rounded-full ${theme === 'light' ? 'bg-slate-300' : 'bg-slate-600'
-                                }`}
-                            />
+                            <div className="flex-1 space-y-3">
+                              <div
+                                className={`h-6 w-2/3 rounded ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'
+                                  }`}
+                              />
+                              <div
+                                className={`h-1 w-10 rounded-full ${theme === 'light' ? 'bg-slate-300' : 'bg-slate-600'
+                                  }`}
+                              />
+                            </div>
                           </div>
-                        </div>
-                        <div className="mt-3 space-y-2">
-                          {slide.content.map((_, bulletIdx) => (
-                            <div
-                              key={bulletIdx}
-                              className={`h-9 rounded-lg ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-800'
-                                }`}
-                            />
-                          ))}
+                          <div className="mt-3 space-y-2">
+                            {slide.content.map((_, bulletIdx) => (
+                              <div
+                                key={bulletIdx}
+                                className={`h-9 rounded-lg ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-800'
+                                  }`}
+                              />
+                            ))}
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                ))
-                : orderedSlides.map((slide, index) => (
+                  )
+                }
+
+                return (
                   <div
-                    key={index}
+                    key={slideKey}
                     className="flex items-stretch gap-3"
                     onDragOver={handleDragOver}
                     onDrop={(event) => handleDrop(event, index)}
                   >
                     {/* Drag handle */}
                     <div
-                      draggable
+                      draggable={!isGeneratingOutline}
                       onDragStart={(event) => handleDragStart(event, index)}
                       onDragEnd={handleDragEnd}
-                      className={`mt-6 flex h-9 w-7 items-center justify-center rounded-full border border-slate-200/70 bg-white text-slate-400 cursor-grab active:cursor-grabbing shadow-sm ${draggingIndex === index ? 'ring-2 ring-slate-300/80 shadow-md' : ''
+                      className={`mt-6 flex h-9 w-7 items-center justify-center rounded-full border border-slate-200/70 bg-white text-slate-400 ${isGeneratingOutline ? 'opacity-50 cursor-not-allowed' : 'cursor-grab active:cursor-grabbing shadow-sm'
+                        } ${draggingIndex === index ? 'ring-2 ring-slate-300/80 shadow-md' : ''
                         }`}
                       title="Drag to reorder slide"
                     >
@@ -1732,8 +1694,8 @@ Apply all fixes now and return only corrected slides.`
 
                     <div
                       className={`flex-1 rounded-3xl overflow-hidden transition backdrop-blur-sm p-7 border shadow-sm ${theme === 'light'
-                          ? 'bg-white/80 border-slate-200/70'
-                          : 'bg-neutral-900/80 border-neutral-700/70'
+                        ? 'bg-white/80 border-slate-200/70'
+                        : 'bg-neutral-900/80 border-neutral-700/70'
                         } ${draggingIndex === index
                           ? 'ring-2 ring-slate-300/80 shadow-md translate-y-0'
                           : 'hover:shadow-md hover:-translate-y-0.5'
@@ -1747,36 +1709,47 @@ Apply all fixes now and return only corrected slides.`
                             {slide.number}
                           </div>
                           <div className="flex-1">
-                            <input
-                              type="text"
-                              value={slide.title}
-                              onChange={(e) => handleTitleChange(index, e.target.value)}
-                              className={`w-full bg-transparent border-b focus:outline-none text-xl font-semibold mb-1 ${theme === 'light'
+                            {isGeneratingOutline ? (
+                              <div className={`w-full bg-transparent border-b text-xl font-semibold mb-1 flex items-center ${theme === 'light'
+                                ? 'border-slate-200/70 text-slate-900'
+                                : 'border-slate-600/70 text-slate-50'
+                                }`}>
+                                {isActiveStream ? <AnimatedStreamText text={slide.title} /> : <span>{slide.title}</span>}
+                              </div>
+                            ) : (
+                              <input
+                                type="text"
+                                value={slide.title}
+                                onChange={(e) => handleTitleChange(index, e.target.value)}
+                                className={`w-full bg-transparent border-b focus:outline-none text-xl font-semibold mb-1 ${theme === 'light'
                                   ? 'border-slate-200/70 focus:border-slate-400 text-slate-900'
                                   : 'border-slate-600/70 focus:border-slate-300 text-slate-50'
-                                }`}
-                            />
+                                  }`}
+                              />
+                            )}
                             <div className="h-1 w-10 bg-slate-900 rounded-full mt-1"></div>
                           </div>
-                          <button
-                            onClick={() => handleDeleteSlide(index)}
-                            className="flex-shrink-0 p-2 text-slate-300 hover:text-slate-500 transition rounded-full hover:bg-slate-50"
-                            title="Delete slide"
-                          >
-                            <svg
-                              className="w-5 h-5"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
+                          {!isGeneratingOutline && (
+                            <button
+                              onClick={() => handleDeleteSlide(index)}
+                              className="flex-shrink-0 p-2 text-slate-300 hover:text-slate-500 transition rounded-full hover:bg-slate-50"
+                              title="Delete slide"
                             >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                              />
-                            </svg>
-                          </button>
+                              <svg
+                                className="w-5 h-5"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                />
+                              </svg>
+                            </button>
+                          )}
                         </div>
 
                         {/* Slide Content - Structured Bulleted List */}
@@ -1786,21 +1759,22 @@ Apply all fixes now and return only corrected slides.`
                               <li
                                 key={idx}
                                 className={`flex items-center gap-2 leading-relaxed ${theme === 'light' ? 'text-slate-700' : 'text-slate-100'
-                                  }`}
+                                  } ${isActiveStream ? 'animate-[slideInUp_0.3s_ease-out]' : ''}`}
                                 onDragOver={handleBulletDragOver}
                                 onDrop={(event) => handleBulletDrop(event, index, idx)}
                               >
                                 {/* Bullet drag handle */}
                                 <div
-                                  draggable
+                                  draggable={!isGeneratingOutline}
                                   onDragStart={(event) =>
                                     handleBulletDragStart(event, index, idx)
                                   }
-                                  className={`flex h-7 w-5 items-center justify-center rounded-full border border-slate-200/70 bg-white text-slate-400 cursor-grab active:cursor-grabbing shadow-sm ${bulletDragging &&
-                                    bulletDragging.slideIndex === index &&
-                                    bulletDragging.bulletIndex === idx
-                                    ? 'ring-2 ring-slate-300/80 shadow-md'
-                                    : ''
+                                  className={`flex h-7 w-5 items-center justify-center rounded-full border border-slate-200/70 bg-white text-slate-400 ${isGeneratingOutline ? 'opacity-50 cursor-not-allowed' : 'cursor-grab active:cursor-grabbing shadow-sm'
+                                    } ${bulletDragging &&
+                                      bulletDragging.slideIndex === index &&
+                                      bulletDragging.bulletIndex === idx
+                                      ? 'ring-2 ring-slate-300/80 shadow-md'
+                                      : ''
                                     }`}
                                   title="Drag to reorder point"
                                 >
@@ -1819,60 +1793,84 @@ Apply all fixes now and return only corrected slides.`
                                   </svg>
                                 </div>
 
-                                <input
-                                  type="text"
-                                  value={point}
-                                  onChange={(e) =>
-                                    handleBulletChange(index, idx, e.target.value)
-                                  }
-                                  className={`flex-1 rounded-lg px-3 py-1.5 text-sm focus:outline-none ${theme === 'light'
-                                      ? 'bg-slate-50/80 border border-slate-200/70 focus:border-slate-400 focus:bg-white'
-                                      : 'bg-neutral-900/80 border border-neutral-700/70 focus:border-neutral-400 focus:bg-neutral-900'
-                                    }`}
-                                />
+                                <div className="flex-1 relative flex items-center">
+                                  {isGeneratingOutline ? (
+                                    <div
+                                      className={`w-full rounded-lg px-3 py-1.5 text-sm flex flex-wrap items-center ${theme === 'light'
+                                        ? 'bg-slate-50/80 border border-slate-200/70 text-slate-700'
+                                        : 'bg-neutral-900/80 border border-neutral-700/70 text-slate-100'
+                                        }`}
+                                    >
+                                      {isActiveStream ? (
+                                        <AnimatedStreamText text={point} />
+                                      ) : (
+                                        <span>{point}</span>
+                                      )}
+                                      {isActiveStream && idx === slide.content.length - 1 && (
+                                        <div className="ml-1 w-1.5 h-4 bg-slate-400 animate-[blink_1s_infinite] inline-block"></div>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <input
+                                      type="text"
+                                      value={point}
+                                      onChange={(e) =>
+                                        handleBulletChange(index, idx, e.target.value)
+                                      }
+                                      className={`w-full rounded-lg px-3 py-1.5 text-sm focus:outline-none ${theme === 'light'
+                                        ? 'bg-slate-50/80 border border-slate-200/70 focus:border-slate-400 focus:bg-white'
+                                        : 'bg-neutral-900/80 border border-neutral-700/70 focus:border-neutral-400 focus:bg-neutral-900'
+                                        }`}
+                                    />
+                                  )}
+                                </div>
 
                                 {/* Bullet actions: add & delete */}
-                                <button
-                                  type="button"
-                                  onClick={() => handleAddBullet(index, idx)}
-                                  className="p-1.5 text-slate-300 hover:text-slate-600 transition rounded-full hover:bg-slate-50"
-                                  title="Add bullet below"
-                                >
-                                  <svg
-                                    className="w-4 h-4"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    viewBox="0 0 24 24"
-                                  >
-                                    <path
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      strokeWidth={2}
-                                      d="M12 4v16m8-8H4"
-                                    />
-                                  </svg>
-                                </button>
+                                {!isGeneratingOutline && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleAddBullet(index, idx)}
+                                      className="p-1.5 text-slate-300 hover:text-slate-600 transition rounded-full hover:bg-slate-50"
+                                      title="Add bullet below"
+                                    >
+                                      <svg
+                                        className="w-4 h-4"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                      >
+                                        <path
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          strokeWidth={2}
+                                          d="M12 4v16m8-8H4"
+                                        />
+                                      </svg>
+                                    </button>
 
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteBullet(index, idx)}
-                                  className="p-1.5 text-slate-300 hover:text-slate-600 transition rounded-full hover:bg-slate-50"
-                                  title="Delete bullet"
-                                >
-                                  <svg
-                                    className="w-4 h-4"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    viewBox="0 0 24 24"
-                                  >
-                                    <path
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      strokeWidth={2}
-                                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                                    />
-                                  </svg>
-                                </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteBullet(index, idx)}
+                                      className="p-1.5 text-slate-300 hover:text-slate-600 transition rounded-full hover:bg-slate-50"
+                                      title="Delete bullet"
+                                    >
+                                      <svg
+                                        className="w-4 h-4"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                      >
+                                        <path
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          strokeWidth={2}
+                                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                        />
+                                      </svg>
+                                    </button>
+                                  </>
+                                )}
                               </li>
                             ))}
                           </ul>
@@ -1880,7 +1878,8 @@ Apply all fixes now and return only corrected slides.`
                       </div>
                     </div>
                   </div>
-                ))}
+                )
+              })}
             </div>
 
             {/* Action Buttons */}
@@ -1917,8 +1916,8 @@ Apply all fixes now and return only corrected slides.`
                 }}
                 disabled={isGeneratingOutline || !orderedSlides.length}
                 className={`flex items-center gap-2 px-6 py-3 font-semibold rounded-full transition disabled:opacity-50 disabled:cursor-not-allowed ${theme === 'light'
-                    ? 'border border-slate-300 text-slate-800 hover:bg-slate-100'
-                    : 'border border-slate-600 text-slate-100 hover:bg-slate-900'
+                  ? 'border border-slate-300 text-slate-800 hover:bg-slate-100'
+                  : 'border border-slate-600 text-slate-100 hover:bg-slate-900'
                   }`}
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2301,6 +2300,7 @@ Apply all fixes now and return only corrected slides.`
                 orderedSlides={orderedSlides}
                 templateComponent={LayoutComp}
                 buildSlideData={buildSlideDataFn}
+                presentationId={presentationId}
                 templateLayouts={layouts}
                 layoutIndices={layoutIndices}
               />

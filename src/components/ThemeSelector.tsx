@@ -89,14 +89,7 @@ export const ThemeSelector: React.FC<ThemeSelectorProps> = ({ currentThemeId, on
       </button>
       {isOpen && (
         <div className="absolute right-0 mt-3 w-[340px] rounded-2xl border border-gray-100 bg-white shadow-xl p-4 z-50">
-          <div className="flex justify-between items-center mb-4 px-1">
-            <button
-              type="button"
-              className="text-xs text-blue-600 font-medium hover:underline"
-              onClick={handleCustomize}
-            >
-              +Customize Theme
-            </button>
+          <div className="flex justify-end items-center mb-4 px-1">
             <button
               type="button"
               className="text-xs text-gray-500 hover:text-red-500 hover:underline transition-colors"
